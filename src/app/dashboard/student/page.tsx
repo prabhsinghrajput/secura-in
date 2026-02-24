@@ -34,9 +34,9 @@ export default function StudentDashboard() {
     // Data States
     const [profile, setProfile] = useState<Student | null>(null);
     const [records, setRecords] = useState<AcademicRecord[]>([]);
-    const [attendance, setAttendance] = useState<(Attendance & { subjects: { name: string } })[]>([]);
-    const [assessments, setAssessments] = useState<(InternalAssessment & { subjects: { name: string } })[]>([]);
-    const [timetable, setTimetable] = useState<(Timetable & { subjects: { name: string }, employees: { name: string } })[]>([]);
+    const [attendance, setAttendance] = useState<Attendance[]>([]);
+    const [assessments, setAssessments] = useState<InternalAssessment[]>([]);
+    const [timetable, setTimetable] = useState<Timetable[]>([]);
     const [qualifications, setQualifications] = useState<Qualification[]>([]);
 
     useEffect(() => {
@@ -74,8 +74,8 @@ export default function StudentDashboard() {
     const attendanceStats = useMemo(() => {
         const stats: Record<string, { total: number; present: number; name: string }> = {};
         attendance.forEach(entry => {
-            const code = entry.subject_code;
-            if (!stats[code]) stats[code] = { total: 0, present: 0, name: entry.subjects.name };
+            const code = entry.subjects?.subject_code || entry.subject_id;
+            if (!stats[code]) stats[code] = { total: 0, present: 0, name: entry.subjects?.name || 'Unknown' };
             stats[code].total++;
             if (entry.status === 'Present') stats[code].present++;
         });
@@ -164,7 +164,7 @@ export default function StudentDashboard() {
                         </div>
                         <div>
                             <h1 className="text-3xl font-black text-stone-900 tracking-tight">Student Portal</h1>
-                            <p className="text-stone-500 font-medium">{profile?.name} • {profile?.program_code || 'Academic Access'}</p>
+                            <p className="text-stone-500 font-medium">{profile?.name} • {profile?.courses?.code || 'Academic Access'}</p>
                         </div>
                     </div>
                     <div className="flex flex-wrap gap-2 bg-white p-1.5 rounded-2xl border border-stone-100 shadow-sm">
@@ -220,8 +220,8 @@ export default function StudentDashboard() {
                                                     <span className="text-[10px] font-black uppercase tracking-tighter">{t.start_time.slice(0, 5)}</span>
                                                 </div>
                                                 <div className="flex-1">
-                                                    <p className="text-sm font-black text-stone-800">{t.subjects.name}</p>
-                                                    <p className="text-xs text-stone-500 font-medium">{t.employees.name} • {t.room}</p>
+                                                    <p className="text-sm font-black text-stone-800">{t.subjects?.name || 'Unknown Subject'}</p>
+                                                    <p className="text-xs text-stone-500 font-medium">{t.employees?.name || 'Faculty TBD'} • {t.room}</p>
                                                 </div>
                                                 <div className="px-3 py-1 bg-white rounded-lg border border-stone-200 text-[10px] font-black text-stone-600 uppercase tracking-widest">
                                                     Active
@@ -327,7 +327,7 @@ export default function StudentDashboard() {
                                         </div>
                                         <div className="flex items-center gap-3 text-sm font-medium text-stone-600">
                                             <Building size={16} className="text-stone-300" />
-                                            {profile?.department}
+                                            {profile?.departments?.name}
                                         </div>
                                     </div>
                                 </CardContent>
@@ -367,11 +367,11 @@ export default function StudentDashboard() {
                                     </div>
                                     <div>
                                         <p className="text-[10px] font-black text-stone-300 uppercase tracking-widest mb-1">Admission Year</p>
-                                        <p className="font-bold text-stone-800">{profile?.admission_year || profile?.year}</p>
+                                        <p className="font-bold text-stone-800">{profile?.admission_year || 'Not Provided'}</p>
                                     </div>
                                     <div>
                                         <p className="text-[10px] font-black text-stone-300 uppercase tracking-widest mb-1">Current Semester</p>
-                                        <p className="font-bold text-stone-800">Semester {profile?.current_semester || (profile?.year ? profile.year * 2 - 1 : 1)}</p>
+                                        <p className="font-bold text-stone-800">Semester {profile?.semesters?.semester_number || 'N/A'}</p>
                                     </div>
                                     <div className="md:col-span-2">
                                         <p className="text-[10px] font-black text-stone-300 uppercase tracking-widest mb-1 text-flex items-center gap-2"><Home size={10} /> Residential Address</p>
@@ -554,7 +554,7 @@ export default function StudentDashboard() {
                                         return (
                                             <tr key={as.id} className="hover:bg-stone-50/50 transition-colors">
                                                 <td className="px-6 py-4">
-                                                    <p className="font-black text-stone-800 text-sm tracking-tight">{as.subjects.name}</p>
+                                                    <p className="font-black text-stone-800 text-sm tracking-tight">{as.subjects?.name || 'Unknown'}</p>
                                                     <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">{as.subject_code}</p>
                                                 </td>
                                                 <td className="px-6 py-4 text-xs font-black text-indigo-600 uppercase tracking-widest">
@@ -602,7 +602,7 @@ export default function StudentDashboard() {
                                         <div className="space-y-3">
                                             {dayLectures.length > 0 ? dayLectures.map(l => (
                                                 <div key={l.id} className="p-3 rounded-xl bg-white border border-stone-100 shadow-sm hover:shadow-md transition-shadow">
-                                                    <p className="text-[10px] font-black text-indigo-600 uppercase tracking-tighter truncate">{l.subjects.name}</p>
+                                                    <p className="text-[10px] font-black text-indigo-600 uppercase tracking-tighter truncate">{l.subjects?.name || 'Unknown'}</p>
                                                     <div className="mt-2 space-y-1">
                                                         <div className="flex items-center gap-1.5 text-[10px] font-medium text-stone-400">
                                                             <Clock size={10} /> {l.start_time.slice(0, 5)} - {l.end_time.slice(0, 5)}

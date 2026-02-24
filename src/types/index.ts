@@ -74,7 +74,7 @@ export interface Student {
     mentor_eid?: string;
     is_active: boolean;
     departments?: { name: string };
-    courses?: { name: string };
+    courses?: { name: string; code: string };
     semesters?: { semester_number: number };
 }
 
@@ -112,7 +112,7 @@ export interface Attendance {
     marked_by: string;
     remarks?: string;
     created_at: string;
-    subjects?: { name: string };
+    subjects?: { name: string; subject_code: string };
 }
 
 export type SubmissionStatus = 'draft' | 'pending_hod' | 'pending_admin' | 'approved' | 'locked';
@@ -167,6 +167,7 @@ export interface Timetable {
     created_at: string;
     subjects?: { name: string; subject_code: string };
     employees?: { name: string };
+    semesters?: { semester_number: number };
 }
 
 export interface AuditLog {

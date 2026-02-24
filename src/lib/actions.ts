@@ -345,7 +345,7 @@ export async function updateStudentProfileActionFull(uid: string, data: Partial<
 
 export async function getAllTimetablesAction() {
     const user = await validateAccess(70);
-    let query = supabaseAdmin.from('timetables').select('*, subjects(name, subject_code), employees(name)');
+    let query = supabaseAdmin.from('timetables').select('*, subjects(name, subject_code), employees(name), semesters(semester_number)');
     if (user.role_level < 80) query = query.eq('department_id', user.department_id);
     const { data, error } = await query.order('day').order('start_time');
     if (error) throw new Error(error.message);
@@ -360,7 +360,7 @@ export async function getStudentProfileAction(uid: string) {
     await validateAccess(10);
     const { data, error } = await supabaseAdmin
         .from('students')
-        .select('*, departments(name), courses(name), semesters(semester_number)')
+        .select('*, departments(name), courses(name, code), semesters(semester_number)')
         .eq('uid', uid)
         .single();
     if (error) throw new Error(error.message);
@@ -403,7 +403,7 @@ export async function getInternalAssessmentsAction(uid: string) {
 
 export async function getTimetableAction(type: 'student' | 'faculty', id: string) {
     await validateAccess(10);
-    let query = supabaseAdmin.from('timetables').select('*, subjects(name, subject_code), employees(name)');
+    let query = supabaseAdmin.from('timetables').select('*, subjects(name, subject_code), employees(name), semesters(semester_number)');
 
     if (type === 'student') {
         const { data: student } = await supabaseAdmin.from('students').select('course_id, current_semester_id').eq('uid', id).single();

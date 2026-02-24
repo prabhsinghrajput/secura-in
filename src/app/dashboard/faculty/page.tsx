@@ -34,7 +34,7 @@ export default function FacultyDashboard() {
     // Master Data
     const [students, setStudents] = useState<Student[]>([]);
     const [subjects, setSubjects] = useState<Subject[]>([]);
-    const [timetable, setTimetable] = useState<(Timetable & { subjects: { name: string }, employees: { name: string } })[]>([]);
+    const [timetable, setTimetable] = useState<Timetable[]>([]);
 
     // UI/Filter State
     const [searchQuery, setSearchQuery] = useState('');
@@ -135,7 +135,7 @@ export default function FacultyDashboard() {
         return students.filter(s => {
             const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 s.uid.toLowerCase().includes(searchQuery.toLowerCase());
-            const matchesDept = filterDept === 'All' || s.department === filterDept;
+            const matchesDept = filterDept === 'All' || s.departments?.name === filterDept;
             return matchesSearch && matchesDept;
         });
     }, [students, searchQuery, filterDept]);
@@ -194,7 +194,7 @@ export default function FacultyDashboard() {
                                             onChange={(e) => setFilterDept(e.target.value)}
                                         >
                                             <option value="All">All Departments</option>
-                                            {[...new Set(students.map(s => s.department))].map(d => <option key={d} value={d}>{d}</option>)}
+                                            {[...new Set(students.map(s => s.departments?.name).filter(Boolean))].map(d => <option key={d} value={d}>{d}</option>)}
                                         </select>
                                     </div>
                                 </div>
@@ -214,8 +214,8 @@ export default function FacultyDashboard() {
                                                         </div>
                                                     </div>
                                                     <div className="flex flex-wrap gap-2 mb-8">
-                                                        <div className="px-3 py-1 bg-stone-50 border border-stone-100 text-stone-400 text-[10px] font-black rounded-lg uppercase tracking-widest">{student.department}</div>
-                                                        <div className="px-3 py-1 bg-stone-50 border border-stone-100 text-stone-400 text-[10px] font-black rounded-lg uppercase tracking-widest">Year {student.year}</div>
+                                                        <div className="px-3 py-1 bg-stone-50 border border-stone-100 text-stone-400 text-[10px] font-black rounded-lg uppercase tracking-widest">{student.departments?.name}</div>
+                                                        <div className="px-3 py-1 bg-stone-50 border border-stone-100 text-stone-400 text-[10px] font-black rounded-lg uppercase tracking-widest">Year {student.admission_year}</div>
                                                     </div>
                                                     <div className="flex gap-2">
                                                         <Button variant="primary" className="flex-1 rounded-xl h-12 font-black shadow-lg shadow-indigo-100 group-hover:bg-indigo-600" onClick={() => fetchRecords(student)}>
@@ -245,7 +245,7 @@ export default function FacultyDashboard() {
                                             </div>
                                             <div className="space-y-1">
                                                 <h2 className="text-4xl font-black tracking-tight">{selectedStudent?.name}</h2>
-                                                <p className="text-white/40 font-bold uppercase tracking-[0.2em] text-xs">{selectedStudent?.uid} • {selectedStudent?.department} • Year {selectedStudent?.year}</p>
+                                                <p className="text-white/40 font-bold uppercase tracking-[0.2em] text-xs">{selectedStudent?.uid} • {selectedStudent?.departments?.name} • Year {selectedStudent?.admission_year}</p>
                                             </div>
                                         </div>
                                     </CardContent>
@@ -356,7 +356,7 @@ export default function FacultyDashboard() {
                                             <tr key={student.uid} className="hover:bg-stone-50/30 transition-colors">
                                                 <td className="px-10 py-6 font-black text-indigo-600 text-sm">{student.uid}</td>
                                                 <td className="px-10 py-6 font-bold text-stone-800">{student.name}</td>
-                                                <td className="px-10 py-6 text-xs text-stone-400 font-bold uppercase tracking-widest">{student.department}</td>
+                                                <td className="px-10 py-6 text-xs text-stone-400 font-bold uppercase tracking-widest">{student.departments?.name}</td>
                                                 <td className="px-10 py-6">
                                                     <div className="flex items-center justify-center gap-2">
                                                         {(['Present', 'Absent', 'Leave'] as const).map(status => (
@@ -500,7 +500,7 @@ export default function FacultyDashboard() {
                                                     <CardContent className="p-4">
                                                         <div className="flex items-center gap-2 mb-3">
                                                             <div className="w-1.5 h-6 bg-indigo-600 rounded-full" />
-                                                            <p className="text-[10px] font-black text-stone-800 uppercase tracking-tighter leading-tight">{l.subjects.name}</p>
+                                                            <p className="text-[10px] font-black text-stone-800 uppercase tracking-tighter leading-tight">{l.subjects?.name || 'Unknown'}</p>
                                                         </div>
                                                         <div className="space-y-2">
                                                             <div className="flex items-center gap-2 text-[10px] font-black text-stone-400">
@@ -513,7 +513,7 @@ export default function FacultyDashboard() {
                                                             </div>
                                                             <div className="flex items-center gap-2 text-[10px] font-black text-indigo-400">
                                                                 <AlertCircle size={12} className="text-indigo-300" />
-                                                                Sem {l.semester}
+                                                                Sem {l.semesters?.semester_number}
                                                             </div>
                                                         </div>
                                                     </CardContent>
