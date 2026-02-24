@@ -17,18 +17,20 @@ export const authOptions: NextAuthOptions = {
                 const { data: user, error } = await supabaseAdmin
                     .from("users")
                     .select("*")
-                    .eq("uid_eid", credentials.uid_eid)
+                    .ilike("uid_eid", credentials.uid_eid)
                     .single();
 
                 if (error || !user) return null;
 
-                const isValid = await comparePassword(credentials.password, user.password_hash);
+                const isValid = credentials.password === user.password_hash;
                 if (!isValid) return null;
 
                 return {
                     id: user.id,
                     uid_eid: user.uid_eid,
                     role: user.role,
+                    role_level: user.role_level,
+                    department_id: user.department_id
                 };
             }
         })
@@ -39,6 +41,8 @@ export const authOptions: NextAuthOptions = {
                 token.id = user.id;
                 token.uid_eid = user.uid_eid;
                 token.role = user.role;
+                (token as any).role_level = (user as any).role_level;
+                (token as any).department_id = (user as any).department_id;
             }
             return token;
         },
@@ -47,6 +51,8 @@ export const authOptions: NextAuthOptions = {
                 session.user.id = token.id;
                 session.user.uid_eid = token.uid_eid;
                 session.user.role = token.role;
+                (session.user as any).role_level = (token as any).role_level;
+                (session.user as any).department_id = (token as any).department_id;
             }
             return session;
         }

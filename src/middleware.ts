@@ -6,14 +6,19 @@ export default withAuth(
         const token = req.nextauth.token;
         const path = req.nextUrl.pathname;
 
-        // Role-based redirection
-        if (path.startsWith("/dashboard/student") && token?.role !== "student") {
+        // Hierarchy-based redirection (Numeric)
+        const roleLevel = (token as any)?.role_level || 0;
+
+        if (path.startsWith("/dashboard/student") && roleLevel < 10) {
             return NextResponse.redirect(new URL("/auth/login", req.url));
         }
-        if (path.startsWith("/dashboard/faculty") && token?.role !== "faculty") {
+        if (path.startsWith("/dashboard/faculty") && roleLevel < 50) {
             return NextResponse.redirect(new URL("/auth/login", req.url));
         }
-        if (path.startsWith("/dashboard/admin") && token?.role !== "admin") {
+        if (path.startsWith("/dashboard/hod") && roleLevel < 70) {
+            return NextResponse.redirect(new URL("/auth/login", req.url));
+        }
+        if (path.startsWith("/dashboard/admin") && roleLevel < 80) {
             return NextResponse.redirect(new URL("/auth/login", req.url));
         }
     },

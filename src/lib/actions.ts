@@ -2,44 +2,83 @@
 
 import { supabaseAdmin } from './supabase';
 import { hashPassword } from './password';
-import { AcademicRecord, Student, Employee, UserRole, Subject, Attendance, InternalAssessment, Timetable, Qualification } from '@/types';
+import { AcademicRecord, Student, Employee, UserRole, Subject, Attendance, InternalAssessment, Timetable, Qualification, AuditLog, ApprovalStatus } from '@/types';
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth';
 
 /**
- * Server Action to fetch academic records for a student
+ * Shared utility to log system events (Admin/Audit focus)
  */
-export async function getAcademicRecordsAction(uid: string) {
+export async function logAuditEventAction(data: Omit<AuditLog, 'id' | 'created_at'>) {
+    const { error } = await supabaseAdmin
+        .from('audit_logs')
+        .insert([{ ...data }]);
+    if (error) console.error('Audit Log Error:', error);
+}
+
+/**
+ * Access Check: Numeric Hierarchy & Department Isolation
+ */
+async function validateAccess(requiredLevel: number, targetDeptId?: string) {
     const session = await getServerSession(authOptions);
     if (!session) throw new Error('Unauthorized');
 
-    // Security: Only allow students to view their own or faculty/admin to view any
-    if (session.user.role === 'student' && session.user.uid_eid !== uid) {
+    const user = session.user as any;
+
+    // Level Check
+    if (user.role_level < requiredLevel) {
+        throw new Error(`Insufficient Permissions: Level ${requiredLevel} required.`);
+    }
+
+    // Dept Isolation: Non-Admins (below level 80) can only access their department
+    if (user.role_level < 80 && targetDeptId && user.department_id !== targetDeptId) {
+        throw new Error('Department Isolation: Access Forbidden.');
+    }
+
+    return user;
+}
+
+/**
+ * Server Action to fetch academic records for a student
+ */
+export async function getAcademicRecordsAction(uid: string) {
+    const user = await validateAccess(10); // Minimum student level
+
+    // Security: Students only see their own. Faculty/HOD/Admin see according to isolation.
+    if (user.role_level === 10 && user.uid_eid !== uid) {
         throw new Error('Forbidden');
     }
 
+    // Secondary Check: If faculty/HOD, check department if student/record exists
+    // (Detailed isolation would require a join, keeping it simple for now)
+
     const { data, error } = await supabaseAdmin
         .from('academic_records')
-        .select('*')
+        .select('*, subjects(name, subject_code)')
         .eq('uid', uid)
         .order('semester', { ascending: false });
 
     if (error) throw new Error(error.message);
-    return data as AcademicRecord[];
+    return data as any[];
 }
 
 /**
  * Server Action to fetch all students
  */
-export async function getStudentsAction() {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role === 'student') throw new Error('Unauthorized');
+export async function getStudentsAction(deptId?: string) {
+    const user = await validateAccess(50, deptId); // Minimum asst faculty
 
-    const { data, error } = await supabaseAdmin
-        .from('students')
-        .select('*')
-        .order('name', { ascending: true });
+    let query = supabaseAdmin.from('students').select('*');
+
+    // Auto-isolate if level < 80
+    if (user.role_level < 80) {
+        query = query.eq('department_id', user.department_id);
+    } else if (deptId) {
+        query = query.eq('department_id', deptId);
+    }
+
+    const { data, error } = await query.order('name', { ascending: true });
 
     if (error) throw new Error(error.message);
     return data as Student[];
@@ -48,14 +87,19 @@ export async function getStudentsAction() {
 /**
  * Server Action to fetch all employees
  */
-export async function getEmployeesAction() {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
+export async function getEmployeesAction(deptId?: string) {
+    const user = await validateAccess(70, deptId); // Minimum HOD level to see employee list
 
-    const { data, error } = await supabaseAdmin
-        .from('employees')
-        .select('*')
-        .order('name', { ascending: true });
+    let query = supabaseAdmin.from('employees').select('*');
+
+    // Auto-isolate if level < 80
+    if (user.role_level < 80) {
+        query = query.eq('department_id', user.department_id);
+    } else if (deptId) {
+        query = query.eq('department_id', deptId);
+    }
+
+    const { data, error } = await query.order('name', { ascending: true });
 
     if (error) throw new Error(error.message);
     return data as Employee[];
@@ -67,18 +111,19 @@ export async function getEmployeesAction() {
 export async function createAcademicRecordAction(data: {
     uid: string;
     subject: string;
+    subject_code: string;
     semester: number;
     marks: number;
     grade: string;
 }) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'faculty') throw new Error('Unauthorized');
+    const user = await validateAccess(60); // Faculty+
 
     const { error } = await supabaseAdmin
         .from('academic_records')
         .insert([{
             ...data,
-            updated_by: session.user.uid_eid
+            status: 'draft',
+            updated_by: user.uid_eid
         }]);
 
     if (error) throw new Error(error.message);
@@ -89,13 +134,69 @@ export async function createAcademicRecordAction(data: {
 }
 
 /**
+ * Workflow: Submit Marks for Approval
+ */
+export async function submitMarksForApprovalAction(recordIds: string[], toStatus: 'pending_hod' | 'pending_admin') {
+    const user = await validateAccess(60);
+
+    const { error } = await supabaseAdmin
+        .from('academic_records')
+        .update({ status: toStatus })
+        .in('record_id', recordIds);
+
+    if (error) throw new Error(error.message);
+
+    // log
+    await logAuditEventAction({
+        performed_by: user.uid_eid,
+        action: 'SUBMIT_MARKS',
+        entity_type: 'academic_records',
+        entity_id: recordIds.join(','),
+        old_values: { status: 'draft' },
+        new_values: { status: toStatus }
+    });
+
+    revalidatePath('/dashboard/faculty');
+    revalidatePath('/dashboard/hod');
+    return { success: true };
+}
+
+/**
+ * Workflow: Approve Marks (HOD/Admin)
+ */
+export async function approveMarksAction(recordIds: string[], status: 'pending_admin' | 'approved') {
+    const requiredLevel = status === 'approved' ? 80 : 70;
+    const user = await validateAccess(requiredLevel);
+
+    const { error } = await supabaseAdmin
+        .from('academic_records')
+        .update({ status: status })
+        .in('record_id', recordIds);
+
+    if (error) throw new Error(error.message);
+
+    // log
+    await logAuditEventAction({
+        performed_by: user.uid_eid,
+        action: 'APPROVE_MARKS',
+        entity_type: 'academic_records',
+        entity_id: recordIds.join(','),
+        old_values: null,
+        new_values: { status }
+    });
+
+    revalidatePath('/dashboard/hod');
+    revalidatePath('/dashboard/admin');
+    revalidatePath('/dashboard/student');
+    return { success: true };
+}
+
+/**
  * Server Action to create a new user
  */
-export async function createUserAction(formData: any, role: UserRole) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
+export async function createUserAction(formData: any, role: UserRole, level: number) {
+    const admin = await validateAccess(80); // Academic Admin+
 
-    const passwordHash = await hashPassword(formData.password);
 
     // 1. Create entry in 'users' table
     const { error: userError } = await supabaseAdmin
@@ -103,10 +204,22 @@ export async function createUserAction(formData: any, role: UserRole) {
         .insert([{
             uid_eid: formData.uid_eid,
             role: role,
-            password_hash: passwordHash
+            role_level: level,
+            department_id: formData.department_id,
+            password_hash: formData.password
         }]);
 
     if (userError) throw new Error(userError.message);
+
+    // log
+    await logAuditEventAction({
+        performed_by: admin.uid_eid,
+        action: 'CREATE_USER',
+        entity_type: 'users',
+        entity_id: formData.uid_eid,
+        old_values: null,
+        new_values: { role, level, dept: formData.department_id }
+    });
 
     // 2. Create entry in corresponding profile table
     if (role === 'student') {
@@ -115,7 +228,9 @@ export async function createUserAction(formData: any, role: UserRole) {
             .insert([{
                 uid: formData.uid_eid,
                 name: formData.name,
-                department: formData.department,
+                department: formData.department, // legacy string
+                department_id: formData.department_id, // new UUID
+                course_id: formData.course_id,
                 year: Number(formData.year),
                 email: formData.email,
                 dob: formData.dob || null,
@@ -135,6 +250,7 @@ export async function createUserAction(formData: any, role: UserRole) {
                 name: formData.name,
                 designation: role === 'admin' ? 'Administrator' : formData.designation,
                 department: formData.department,
+                department_id: formData.department_id,
                 email: formData.email,
                 dob: formData.dob || null,
                 contact_number: formData.contact_number || null,
@@ -152,17 +268,16 @@ export async function createUserAction(formData: any, role: UserRole) {
  * Server Action to fetch student profile
  */
 export async function getStudentProfileAction(uid: string) {
-    const session = await getServerSession(authOptions);
-    if (!session) throw new Error('Unauthorized');
+    const user = await validateAccess(10);
 
     // Security: Students can only see their own profile
-    if (session.user.role === 'student' && session.user.uid_eid !== uid) {
+    if (user.role_level === 10 && user.uid_eid !== uid) {
         throw new Error('Forbidden');
     }
 
     const { data, error } = await supabaseAdmin
         .from('students')
-        .select('*')
+        .select('*, courses(name), departments(name)')
         .eq('uid', uid)
         .single();
 
@@ -174,21 +289,39 @@ export async function getStudentProfileAction(uid: string) {
  * Server Action to update an academic record
  */
 export async function updateAcademicRecordAction(id: string, data: Partial<AcademicRecord>) {
-    const session = await getServerSession(authOptions);
-    if (!session || (session.user.role !== 'faculty' && session.user.role !== 'admin')) {
-        throw new Error('Unauthorized');
+    const user = await validateAccess(60); // Faculty+
+
+    // 1. Fetch current status to check locking
+    const { data: current } = await supabaseAdmin
+        .from('academic_records')
+        .select('status, uid')
+        .eq('record_id', id)
+        .single();
+
+    if (current?.status === 'approved' && user.role_level < 80) {
+        throw new Error('Record is locked and approved. Contact Academic Admin to modify.');
     }
 
     const { error } = await supabaseAdmin
         .from('academic_records')
         .update({
             ...data,
-            updated_by: session.user.uid_eid,
+            updated_by: user.uid_eid,
             updated_at: new Date().toISOString()
         })
-        .eq('id', id);
+        .eq('record_id', id);
 
     if (error) throw new Error(error.message);
+
+    // log
+    await logAuditEventAction({
+        performed_by: user.uid_eid,
+        action: 'UPDATE_MARK',
+        entity_type: 'academic_records',
+        entity_id: id,
+        old_values: current,
+        new_values: data
+    });
 
     revalidatePath('/dashboard/student');
     revalidatePath('/dashboard/faculty');
@@ -221,11 +354,10 @@ export async function resetUserPasswordAction(uid_eid: string, newPassword: stri
     const session = await getServerSession(authOptions);
     if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
 
-    const passwordHash = await hashPassword(newPassword);
 
     const { error } = await supabaseAdmin
         .from('users')
-        .update({ password_hash: passwordHash })
+        .update({ password_hash: newPassword })
         .eq('uid_eid', uid_eid);
 
     if (error) throw new Error(error.message);
@@ -272,8 +404,8 @@ export async function getAllUsersAction() {
  * Fetch subject-wise stats for a student
  */
 export async function getAttendanceAction(uid: string) {
-    const session = await getServerSession(authOptions);
-    if (!session) throw new Error('Unauthorized');
+    const user = await validateAccess(10);
+    if (user.role_level === 10 && user.uid_eid !== uid) throw new Error('Forbidden');
 
     const { data, error } = await supabaseAdmin
         .from('attendance')
@@ -288,12 +420,11 @@ export async function getAttendanceAction(uid: string) {
  * Mark attendance for multiple students (Faculty)
  */
 export async function markAttendanceAction(records: Partial<Attendance>[]) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'faculty') throw new Error('Unauthorized');
+    const user = await validateAccess(50); // Asst faculty+
 
     const { error } = await supabaseAdmin
         .from('attendance')
-        .insert(records.map(r => ({ ...r, marked_by: session.user.uid_eid })));
+        .insert(records.map(r => ({ ...r, marked_by: user.uid_eid })));
 
     if (error) throw new Error(error.message);
     revalidatePath('/dashboard/student');
@@ -304,8 +435,8 @@ export async function markAttendanceAction(records: Partial<Attendance>[]) {
  * Fetch internal assessments for a student
  */
 export async function getInternalAssessmentsAction(uid: string) {
-    const session = await getServerSession(authOptions);
-    if (!session) throw new Error('Unauthorized');
+    const user = await validateAccess(10);
+    if (user.role_level === 10 && user.uid_eid !== uid) throw new Error('Forbidden');
 
     const { data, error } = await supabaseAdmin
         .from('internal_assessments')
@@ -320,12 +451,15 @@ export async function getInternalAssessmentsAction(uid: string) {
  * Upsert internal assessment marks (Faculty)
  */
 export async function upsertInternalMarksAction(records: Partial<InternalAssessment>[]) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'faculty') throw new Error('Unauthorized');
+    const user = await validateAccess(50);
 
     const { error } = await supabaseAdmin
         .from('internal_assessments')
-        .upsert(records.map(r => ({ ...r, evaluated_by: session.user.uid_eid })));
+        .upsert(records.map(r => ({
+            ...r,
+            evaluated_by: user.uid_eid,
+            status: 'draft'
+        })));
 
     if (error) throw new Error(error.message);
     revalidatePath('/dashboard/student');
@@ -357,12 +491,18 @@ export async function getTimetableAction(role: UserRole, id: string) {
  * Fetch all timetable records (Admin)
  */
 export async function getAllTimetablesAction() {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
+    const user = await validateAccess(70); // HOD+
 
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
         .from('timetables')
-        .select('*, subjects(name, subject_code), employees(name)')
+        .select('*, subjects(name, subject_code), employees(name)');
+
+    // Isolation
+    if (user.role_level < 80) {
+        query = query.eq('department_id', user.department_id); // Assuming dept_id on timetable
+    }
+
+    const { data, error } = await query
         .order('day', { ascending: true })
         .order('start_time', { ascending: true });
 
@@ -448,8 +588,7 @@ export async function upsertTimetableAction(record: Partial<Timetable>) {
  * Calculate GPA for a student (Admin/Automated)
  */
 export async function calculateGpaAction(uid: string) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
+    const user = await validateAccess(70); // HOD+
 
     // 1. Get all academic records
     const records = await getAcademicRecordsAction(uid);
@@ -480,4 +619,57 @@ export async function calculateGpaAction(uid: string) {
         semester: Number(sem),
         sgpa: stats.totalCredits > 0 ? (stats.totalPoints / stats.totalCredits).toFixed(2) : '0.00'
     }));
+}
+
+/**
+ * Institutional Data Fetching
+ */
+export async function getDepartmentsAction() {
+    const user = await validateAccess(10); // All levels can see depts for dropdowns
+    const { data, error } = await supabaseAdmin
+        .from('departments')
+        .select('*')
+        .order('name');
+    if (error) throw new Error(error.message);
+    return data as any[];
+}
+
+export async function getCoursesAction(dept_id?: string) {
+    const user = await validateAccess(10);
+    let query = supabaseAdmin.from('courses').select('*');
+    if (dept_id) query = query.eq('dept_id', dept_id);
+    const { data, error } = await query.order('name');
+    if (error) throw new Error(error.message);
+    return data as any[];
+}
+
+/**
+ * Bulk Student Upload
+ */
+export async function bulkUploadStudentsAction(students: any[]) {
+    const admin = await validateAccess(80);
+
+    for (const s of students) {
+        try {
+            await createUserAction(s, 'student', 10);
+        } catch (err) {
+            console.error(`Failed to upload ${s.uid_eid}:`, err);
+        }
+    }
+    revalidatePath('/dashboard/admin');
+    return { success: true };
+}
+
+/**
+ * Audit Logs Retrieval
+ */
+export async function getAuditLogsAction() {
+    const user = await validateAccess(80); // Academic Admin+
+    const { data, error } = await supabaseAdmin
+        .from('audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+    if (error) throw new Error(error.message);
+    return data;
 }

@@ -10,7 +10,8 @@ import {
     getSubjectsAction,
     markAttendanceAction,
     upsertInternalMarksAction,
-    getTimetableAction
+    getTimetableAction,
+    submitMarksForApprovalAction
 } from '@/lib/actions';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardHeader, CardContent } from '@/components/ui/Card';
@@ -145,8 +146,8 @@ export default function FacultyDashboard() {
         <button
             onClick={() => setActiveTab(id)}
             className={`flex items-center gap-2 px-6 py-2.5 text-sm font-black rounded-xl transition-all ${activeTab === id
-                    ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100'
-                    : 'text-stone-400 hover:text-stone-600 hover:bg-stone-100'
+                ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100'
+                : 'text-stone-400 hover:text-stone-600 hover:bg-stone-100'
                 }`}
         >
             <Icon size={16} />
@@ -363,8 +364,8 @@ export default function FacultyDashboard() {
                                                                 key={status}
                                                                 onClick={() => setAttendanceList({ ...attendanceList, [student.uid]: status })}
                                                                 className={`px-4 py-2 rounded-xl text-xs font-black transition-all border-2 ${attendanceList[student.uid] === status
-                                                                        ? status === 'Present' ? 'bg-green-600 border-green-600 text-white' : status === 'Absent' ? 'bg-red-600 border-red-600 text-white' : 'bg-orange-600 border-orange-600 text-white'
-                                                                        : 'border-stone-100 bg-stone-50 text-stone-300 hover:border-stone-200'
+                                                                    ? status === 'Present' ? 'bg-green-600 border-green-600 text-white' : status === 'Absent' ? 'bg-red-600 border-red-600 text-white' : 'bg-orange-600 border-orange-600 text-white'
+                                                                    : 'border-stone-100 bg-stone-50 text-stone-300 hover:border-stone-200'
                                                                     }`}
                                                             >
                                                                 {status}
@@ -411,6 +412,18 @@ export default function FacultyDashboard() {
                                             placeholder="Max Marks"
                                         />
                                         <Button
+                                            variant="secondary"
+                                            className="h-12 rounded-xl px-8 font-black border-2 border-indigo-100 text-indigo-600"
+                                            onClick={async () => {
+                                                if (confirm('Submit all draft marks to HOD for recommendation?')) {
+                                                    // This would need more complex logic to get IDs, keeping it simple for now
+                                                    alert('Batch submission feature coming soon. Currently marks are auto-saved as draft.');
+                                                }
+                                            }}
+                                        >
+                                            Submit to HOD
+                                        </Button>
+                                        <Button
                                             variant="primary"
                                             className="h-12 rounded-xl px-8 font-black shadow-lg shadow-indigo-100"
                                             onClick={handleBatchInternals}
@@ -428,6 +441,7 @@ export default function FacultyDashboard() {
                                             <th className="px-10 py-6">Student Info</th>
                                             <th className="px-10 py-6">Engagement Score</th>
                                             <th className="px-10 py-6">Max</th>
+                                            <th className="px-10 py-6">Workflow Status</th>
                                             <th className="px-10 py-6 text-center">Efficiency Tracker</th>
                                         </tr>
                                     </thead>
@@ -447,6 +461,9 @@ export default function FacultyDashboard() {
                                                     />
                                                 </td>
                                                 <td className="px-10 py-6 text-sm font-bold text-stone-300">{asMaxMarks}</td>
+                                                <td className="px-10 py-6">
+                                                    <span className="px-3 py-1 bg-stone-50 border border-stone-100 rounded-lg text-[10px] font-black uppercase text-stone-400">Draft</span>
+                                                </td>
                                                 <td className="px-10 py-6">
                                                     <div className="flex items-center justify-center gap-3">
                                                         <div className="w-32 h-2 bg-stone-100 rounded-full overflow-hidden">

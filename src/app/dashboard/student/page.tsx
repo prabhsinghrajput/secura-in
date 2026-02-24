@@ -437,11 +437,21 @@ export default function StudentDashboard() {
                                                     <CardContent className="p-6">
                                                         <div className="flex justify-between items-start mb-6">
                                                             <div className="flex-1">
-                                                                <h4 className="font-black text-stone-800 leading-tight group-hover:text-indigo-600 transition-colors uppercase tracking-tight text-sm mb-1">{record.subject}</h4>
-                                                                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">4 Credits • External Exam</p>
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <h4 className="font-black text-stone-800 leading-tight group-hover:text-indigo-600 transition-colors uppercase tracking-tight text-sm">{record.subject}</h4>
+                                                                    {record.status === 'approved' ? (
+                                                                        <CheckCircle2 size={12} className="text-emerald-500" />
+                                                                    ) : (
+                                                                        <Clock size={12} className="text-orange-400" />
+                                                                    )}
+                                                                </div>
+                                                                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
+                                                                    {record.status?.replace('_', ' ')} • External Exam
+                                                                </p>
                                                             </div>
-                                                            <div className="w-10 h-10 rounded-xl bg-stone-50 flex items-center justify-center text-stone-900 font-black text-sm border border-stone-100">
-                                                                {record.grade}
+                                                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm border ${record.status === 'approved' ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100' : 'bg-stone-50 text-stone-300 border-stone-100'
+                                                                }`}>
+                                                                {record.status === 'approved' ? record.grade : '...'}
                                                             </div>
                                                         </div>
                                                         <div className="flex items-center justify-between">

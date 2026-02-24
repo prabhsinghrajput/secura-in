@@ -10,7 +10,11 @@ import {
     getStudentsAction,
     getEmployeesAction,
     updateStudentProfileActionFull,
-    getAllTimetablesAction
+    getAllTimetablesAction,
+    getDepartmentsAction,
+    getCoursesAction,
+    bulkUploadStudentsAction,
+    getAuditLogsAction
 } from '@/lib/actions';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardHeader, CardContent } from '@/components/ui/Card';
@@ -21,11 +25,11 @@ import {
     Trash2, RefreshCw, Calendar, BookOpen, Search,
     Filter, MoreVertical, LayoutGrid, List, CheckCircle2,
     Briefcase, GraduationCap, MapPin, Phone, Mail, Globe,
-    ArrowRight, Info, Plus
+    ArrowRight, Info, Plus, Printer
 } from 'lucide-react';
 import { UserRole, Student, Employee, Subject } from '@/types';
 
-type AdminTab = 'users' | 'registry' | 'subjects' | 'timetables' | 'analytics';
+type AdminTab = 'users' | 'registry' | 'subjects' | 'timetables' | 'analytics' | 'audit';
 
 export default function AdminDashboard() {
     const [loading, setLoading] = useState(false);
@@ -37,6 +41,9 @@ export default function AdminDashboard() {
     const [employees, setEmployees] = useState<Employee[]>([]);
     const [subjects, setSubjects] = useState<Subject[]>([]);
     const [allTimetables, setAllTimetables] = useState<any[]>([]);
+    const [departments, setDepartments] = useState<any[]>([]);
+    const [courses, setCourses] = useState<any[]>([]);
+    const [auditLogs, setAuditLogs] = useState<any[]>([]);
 
     // Filtering
     const [userSearch, setUserSearch] = useState('');
@@ -44,8 +51,10 @@ export default function AdminDashboard() {
 
     // Registration Form
     const [regRole, setRegRole] = useState<UserRole>('student');
+    const [regLevel, setRegLevel] = useState(10);
     const [regData, setRegData] = useState({
         uid_eid: '', name: '', email: '', department: '', password: '',
+        department_id: '', course_id: '',
         year: 1, designation: '', dob: '', blood_group: '',
         admission_year: new Date().getFullYear(), program_code: 'B.TECH',
         current_semester: 1, address: '', contact_number: ''
@@ -62,18 +71,24 @@ export default function AdminDashboard() {
     const fetchInitialData = async () => {
         setLoading(true);
         try {
-            const [u, s, e, sub, timetables] = await Promise.all([
+            const [u, s, e, sub, timetables, depts, crs, logs] = await Promise.all([
                 getAllUsersAction(),
                 getStudentsAction(),
                 getEmployeesAction(),
                 getSubjectsAction(),
-                getAllTimetablesAction()
+                getAllTimetablesAction(),
+                getDepartmentsAction(),
+                getCoursesAction(),
+                getAuditLogsAction()
             ]);
             setUsers(u);
             setStudents(s);
             setEmployees(e);
             setSubjects(sub);
             setAllTimetables(timetables);
+            setDepartments(depts);
+            setCourses(crs);
+            setAuditLogs(logs);
         } catch (err) {
             console.error(err);
         }
@@ -84,10 +99,11 @@ export default function AdminDashboard() {
         e.preventDefault();
         setLoading(true);
         try {
-            await createUserAction(regData, regRole);
+            await createUserAction(regData, regRole, regLevel);
             alert('Account provisioned successfully');
             setRegData({
                 uid_eid: '', name: '', email: '', department: '', password: '',
+                department_id: '', course_id: '',
                 year: 1, designation: '', dob: '', blood_group: '',
                 admission_year: new Date().getFullYear(), program_code: 'B.TECH',
                 current_semester: 1, address: '', contact_number: ''
@@ -136,6 +152,7 @@ export default function AdminDashboard() {
                         <TabButton id="subjects" label="Curriculum" icon={BookOpen} />
                         <TabButton id="timetables" label="Schedule" icon={Calendar} />
                         <TabButton id="analytics" label="Pulse" icon={Globe} />
+                        <TabButton id="audit" label="Audit" icon={Shield} />
                     </div>
                 </div>
 
@@ -265,17 +282,28 @@ export default function AdminDashboard() {
                                     </div>
                                 </div>
                                 <div className="md:col-span-8 p-12 bg-white">
-                                    <div className="flex bg-stone-50 p-2 rounded-2xl mb-12">
-                                        {(['student', 'faculty', 'admin'] as const).map(r => (
-                                            <button
-                                                key={r}
-                                                onClick={() => setRegRole(r)}
-                                                className={`flex-1 py-4 text-xs font-black rounded-xl uppercase tracking-[0.2em] transition-all ${regRole === r ? 'bg-white text-indigo-600 shadow-xl' : 'text-stone-300 hover:text-stone-500'
-                                                    }`}
-                                            >
-                                                {r}
-                                            </button>
-                                        ))}
+                                    <div className="space-y-4 mb-12">
+                                        <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest ml-1">Hierarchical Role Assignment</label>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                            {[
+                                                { id: 'student', level: 10, label: 'Student' },
+                                                { id: 'assistant_faculty', level: 50, label: 'Asst. Faculty' },
+                                                { id: 'faculty', level: 60, label: 'Professor' },
+                                                { id: 'hod', level: 70, label: 'HOD' },
+                                                { id: 'admin', level: 80, label: 'Acad Admin' },
+                                                { id: 'admin', level: 100, label: 'Super Admin' }
+                                            ].map(r => (
+                                                <button
+                                                    key={`${r.id}-${r.level}`}
+                                                    type="button"
+                                                    onClick={() => { setRegRole(r.id as UserRole); setRegLevel(r.level); }}
+                                                    className={`py-3 px-4 text-[10px] font-black rounded-xl uppercase tracking-widest transition-all border-2 ${regLevel === r.level ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 'bg-stone-50 text-stone-300 border-transparent hover:text-stone-500'
+                                                        }`}
+                                                >
+                                                    {r.label} (L{r.level})
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
 
                                     <form onSubmit={handleCreateAccount} className="space-y-8">
@@ -312,18 +340,36 @@ export default function AdminDashboard() {
                                                 />
                                             </div>
                                             <div className="space-y-2">
-                                                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest ml-1">Assigned Department</label>
+                                                <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest ml-1">Organization Unit (Dept)</label>
                                                 <select
                                                     className="w-full h-14 px-6 bg-stone-50 border-0 rounded-2xl font-bold text-stone-800 outline-none focus:ring-4 focus:ring-indigo-50 appearance-none"
-                                                    value={regData.department}
-                                                    onChange={e => setRegData({ ...regData, department: e.target.value })}
+                                                    value={regData.department_id}
+                                                    onChange={e => {
+                                                        const dept = departments.find(d => d.id === e.target.value);
+                                                        setRegData({ ...regData, department_id: e.target.value, department: dept?.name || '' });
+                                                    }}
+                                                    required
                                                 >
-                                                    <option value="">Select Domain</option>
-                                                    <option value="Computer Science">Computer Science</option>
-                                                    <option value="Electronics">Electronics</option>
-                                                    <option value="Mathematics">Mathematics</option>
+                                                    <option value="">Select Department</option>
+                                                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                                                 </select>
                                             </div>
+                                            {regRole === 'student' && (
+                                                <div className="space-y-2">
+                                                    <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest ml-1">Academic Program (Course)</label>
+                                                    <select
+                                                        className="w-full h-14 px-6 bg-stone-50 border-0 rounded-2xl font-bold text-stone-800 outline-none focus:ring-4 focus:ring-indigo-50 appearance-none"
+                                                        value={regData.course_id}
+                                                        onChange={e => setRegData({ ...regData, course_id: e.target.value })}
+                                                        required
+                                                    >
+                                                        <option value="">Select Course</option>
+                                                        {courses.filter(c => c.dept_id === regData.department_id).map(c => (
+                                                            <option key={c.id} value={c.id}>{c.name}</option>
+                                                        ))}
+                                                    </select>
+                                                </div>
+                                            )}
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest ml-1">Security Credential</label>
                                                 <Input
@@ -343,6 +389,26 @@ export default function AdminDashboard() {
                                             </Button>
                                         </div>
                                     </form>
+                                    <div className="my-10 h-px bg-stone-100 relative">
+                                        <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white px-4 text-[10px] font-black text-stone-300 uppercase tracking-widest">Or Multi-Provision</span>
+                                    </div>
+
+                                    <div className="p-8 rounded-3xl bg-indigo-50 border border-indigo-100 group hover:border-indigo-300 transition-all cursor-pointer relative overflow-hidden">
+                                        <div className="relative z-10 flex items-center justify-between">
+                                            <div className="flex items-center gap-6">
+                                                <div className="w-14 h-14 bg-indigo-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
+                                                    <RefreshCw size={24} />
+                                                </div>
+                                                <div>
+                                                    <h3 className="font-black text-stone-900">Bulk System Ingest</h3>
+                                                    <p className="text-xs font-bold text-indigo-400">Upload CSV/Excel Spreadsheet</p>
+                                                </div>
+                                            </div>
+                                            <Button variant="outline" className="h-12 px-6 rounded-xl font-black bg-white border-transparent shadow-sm">
+                                                Select Archive
+                                            </Button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </Card>
@@ -550,6 +616,65 @@ export default function AdminDashboard() {
                                 </Button>
                             </Card>
                         </div>
+                    </div>
+                )}
+                {activeTab === 'audit' && (
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="flex justify-between items-center bg-white p-8 rounded-3xl border border-stone-100 shadow-sm">
+                            <div>
+                                <h2 className="text-2xl font-black text-stone-900 tracking-tight">Institutional Audit Vault</h2>
+                                <p className="text-stone-400 font-bold text-xs uppercase tracking-widest mt-1">Immutable Transaction History</p>
+                            </div>
+                            <Button variant="secondary" className="h-12 px-6 rounded-xl font-black border-2 border-stone-100">
+                                <Printer size={18} className="mr-2" /> Export Log
+                            </Button>
+                        </div>
+
+                        <Card className="border-stone-100 overflow-hidden shadow-xl shadow-stone-100/30">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-stone-50 text-stone-400 text-[10px] font-black uppercase tracking-widest border-b border-stone-100">
+                                        <tr>
+                                            <th className="px-8 py-6">Timestamp</th>
+                                            <th className="px-8 py-6">Agent</th>
+                                            <th className="px-8 py-6">Action</th>
+                                            <th className="px-8 py-6">Entity</th>
+                                            <th className="px-8 py-6 text-right">Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-stone-50">
+                                        {auditLogs.map(log => (
+                                            <tr key={log.id} className="hover:bg-indigo-50/10 transition-colors">
+                                                <td className="px-8 py-6">
+                                                    <p className="text-xs font-bold text-stone-400">{new Date(log.created_at).toLocaleString()}</p>
+                                                </td>
+                                                <td className="px-8 py-6">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-6 h-6 rounded-full bg-stone-100 flex items-center justify-center text-[8px] font-black">
+                                                            {log.performed_by?.[0]}
+                                                        </div>
+                                                        <span className="text-xs font-black text-indigo-600">{log.performed_by}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-6">
+                                                    <span className={`px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest ${log.action.includes('CREATE') ? 'bg-emerald-100 text-emerald-600' :
+                                                        log.action.includes('UPDATE') ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
+                                                        }`}>
+                                                        {log.action}
+                                                    </span>
+                                                </td>
+                                                <td className="px-8 py-6">
+                                                    <p className="text-xs font-bold text-stone-600">{log.entity_type} • {log.entity_id}</p>
+                                                </td>
+                                                <td className="px-8 py-6 text-right">
+                                                    <Button variant="outline" size="sm" className="h-8 rounded-lg text-[8px] font-black uppercase">Inspect JSON</Button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
                     </div>
                 )}
             </div>

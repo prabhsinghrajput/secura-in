@@ -1,17 +1,43 @@
-export type UserRole = 'student' | 'faculty' | 'admin';
+export type UserRole = 'student' | 'faculty' | 'admin' | 'hod' | 'assistant_faculty';
 
 export interface User {
     id: string;
     uid_eid: string;
     role: UserRole;
-    password_hash: string;
+    role_level: number;
+    department_id?: string;
+    is_active: boolean;
     created_at: string;
+}
+
+export interface Department {
+    id: string;
+    name: string;
+    code: string;
+}
+
+export interface Course {
+    id: string;
+    dept_id: string;
+    name: string;
+    code: string;
+    duration_years: number;
+}
+
+export interface Semester {
+    id: string;
+    course_id: string;
+    semester_number: number;
+    is_active: boolean;
+    is_locked: boolean;
 }
 
 export interface Student {
     uid: string;
     name: string;
     department: string;
+    department_id?: string;
+    course_id?: string;
     year: number;
     email: string;
     dob?: string;
@@ -29,6 +55,7 @@ export interface Employee {
     name: string;
     designation: string;
     department: string;
+    department_id?: string;
     email: string;
     dob?: string;
     contact_number?: string;
@@ -44,13 +71,18 @@ export interface Subject {
     max_internal: number;
 }
 
+export type ApprovalStatus = 'draft' | 'pending_hod' | 'pending_admin' | 'approved';
+
 export interface AcademicRecord {
     record_id: string;
     uid: string;
     subject: string;
     semester: number;
     marks: number;
+    external_marks: number;
+    internal_total: number;
     grade: string;
+    status: ApprovalStatus;
     updated_by: string;
     updated_at: string;
 }
@@ -62,6 +94,7 @@ export interface InternalAssessment {
     assessment_type: 'Assignment' | 'Quiz' | 'MST1' | 'MST2' | 'Lab' | 'Project' | 'Surprise Test';
     marks_obtained: number;
     max_marks: number;
+    status: ApprovalStatus;
     evaluated_by: string;
     created_at: string;
 }
@@ -93,4 +126,16 @@ export interface Qualification {
     degree: string;
     percentage_cgpa: number;
     year_of_passing: number;
+}
+
+export interface AuditLog {
+    id: string;
+    performed_by: string;
+    action: string;
+    entity_type: string;
+    entity_id: string;
+    old_values: any;
+    new_values: any;
+    ip_address?: string;
+    created_at: string;
 }
