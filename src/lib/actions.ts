@@ -2,11 +2,28 @@
 
 import { supabaseAdmin } from './supabase';
 import { hashPassword } from './password';
-import { AcademicRecord, Student, Employee, UserRole, Subject, Attendance, InternalAssessment, Timetable, Qualification, AuditLog, ApprovalStatus } from '@/types';
+import {
+    Student,
+    Employee,
+    Subject,
+    Attendance,
+    Timetable,
+    AuditLog,
+    MarksSubmission,
+    SubmissionStatus,
+    UserLevel,
+    Role,
+    AcademicRecord,
+    InternalAssessment,
+    Qualification
+} from '@/types';
 import { revalidatePath } from 'next/cache';
 import { getServerSession } from 'next-auth';
 import { authOptions } from './auth';
 
+/**
+ * Shared utility to log system events (Admin/Audit focus)
+ */
 /**
  * Shared utility to log system events (Admin/Audit focus)
  */
@@ -40,636 +57,427 @@ async function validateAccess(requiredLevel: number, targetDeptId?: string) {
 }
 
 /**
- * Server Action to fetch academic records for a student
+ * Fetch Subjects
  */
-export async function getAcademicRecordsAction(uid: string) {
-    const user = await validateAccess(10); // Minimum student level
-
-    // Security: Students only see their own. Faculty/HOD/Admin see according to isolation.
-    if (user.role_level === 10 && user.uid_eid !== uid) {
-        throw new Error('Forbidden');
-    }
-
-    // Secondary Check: If faculty/HOD, check department if student/record exists
-    // (Detailed isolation would require a join, keeping it simple for now)
-
-    const { data, error } = await supabaseAdmin
-        .from('academic_records')
-        .select('*, subjects(name, subject_code)')
-        .eq('uid', uid)
-        .order('semester', { ascending: false });
-
+export async function getSubjectsAction(courseId?: string) {
+    let query = supabaseAdmin.from('subjects').select('*, courses(name)');
+    if (courseId) query = query.eq('course_id', courseId);
+    const { data, error } = await query;
     if (error) throw new Error(error.message);
     return data as any[];
 }
 
 /**
- * Server Action to fetch all students
+ * Fetch Students
  */
 export async function getStudentsAction(deptId?: string) {
-    const user = await validateAccess(50, deptId); // Minimum asst faculty
+    const user = await validateAccess(10, deptId);
+    let query = supabaseAdmin.from('students').select('*, courses(name), departments(name)');
 
-    let query = supabaseAdmin.from('students').select('*');
-
-    // Auto-isolate if level < 80
     if (user.role_level < 80) {
         query = query.eq('department_id', user.department_id);
     } else if (deptId) {
         query = query.eq('department_id', deptId);
     }
 
-    const { data, error } = await query.order('name', { ascending: true });
-
+    const { data, error } = await query.order('name');
     if (error) throw new Error(error.message);
     return data as Student[];
 }
 
 /**
- * Server Action to fetch all employees
+ * Fetch Employees
  */
 export async function getEmployeesAction(deptId?: string) {
-    const user = await validateAccess(70, deptId); // Minimum HOD level to see employee list
+    const user = await validateAccess(70, deptId);
+    let query = supabaseAdmin.from('employees').select('*, departments(name)');
 
-    let query = supabaseAdmin.from('employees').select('*');
-
-    // Auto-isolate if level < 80
     if (user.role_level < 80) {
         query = query.eq('department_id', user.department_id);
     } else if (deptId) {
         query = query.eq('department_id', deptId);
     }
 
-    const { data, error } = await query.order('name', { ascending: true });
-
+    const { data, error } = await query.order('name');
     if (error) throw new Error(error.message);
     return data as Employee[];
 }
 
 /**
- * Server Action to create an academic record
+ * Bulk Student Upload (CSV Processing Logic)
  */
-export async function createAcademicRecordAction(data: {
-    uid: string;
-    subject: string;
-    subject_code: string;
-    semester: number;
-    marks: number;
-    grade: string;
-}) {
-    const user = await validateAccess(60); // Faculty+
+export async function bulkUploadStudentsAction(students: any[]) {
+    const admin = await validateAccess(80);
 
-    const { error } = await supabaseAdmin
-        .from('academic_records')
-        .insert([{
-            ...data,
-            status: 'draft',
-            updated_by: user.uid_eid
-        }]);
+    const results = { success: 0, failed: 0, errors: [] as string[] };
 
-    if (error) throw new Error(error.message);
+    for (const s of students) {
+        try {
+            await createUserAction(s, 'Student', 10);
+            results.success++;
+        } catch (err: any) {
+            results.failed++;
+            results.errors.push(`${s.uid_eid}: ${err.message}`);
+        }
+    }
 
-    revalidatePath('/dashboard/student');
-    revalidatePath('/dashboard/faculty');
-    return { success: true };
-}
-
-/**
- * Workflow: Submit Marks for Approval
- */
-export async function submitMarksForApprovalAction(recordIds: string[], toStatus: 'pending_hod' | 'pending_admin') {
-    const user = await validateAccess(60);
-
-    const { error } = await supabaseAdmin
-        .from('academic_records')
-        .update({ status: toStatus })
-        .in('record_id', recordIds);
-
-    if (error) throw new Error(error.message);
-
-    // log
-    await logAuditEventAction({
-        performed_by: user.uid_eid,
-        action: 'SUBMIT_MARKS',
-        entity_type: 'academic_records',
-        entity_id: recordIds.join(','),
-        old_values: { status: 'draft' },
-        new_values: { status: toStatus }
-    });
-
-    revalidatePath('/dashboard/faculty');
-    revalidatePath('/dashboard/hod');
-    return { success: true };
-}
-
-/**
- * Workflow: Approve Marks (HOD/Admin)
- */
-export async function approveMarksAction(recordIds: string[], status: 'pending_admin' | 'approved') {
-    const requiredLevel = status === 'approved' ? 80 : 70;
-    const user = await validateAccess(requiredLevel);
-
-    const { error } = await supabaseAdmin
-        .from('academic_records')
-        .update({ status: status })
-        .in('record_id', recordIds);
-
-    if (error) throw new Error(error.message);
-
-    // log
-    await logAuditEventAction({
-        performed_by: user.uid_eid,
-        action: 'APPROVE_MARKS',
-        entity_type: 'academic_records',
-        entity_id: recordIds.join(','),
-        old_values: null,
-        new_values: { status }
-    });
-
-    revalidatePath('/dashboard/hod');
     revalidatePath('/dashboard/admin');
-    revalidatePath('/dashboard/student');
-    return { success: true };
+    return results;
 }
 
 /**
- * Server Action to create a new user
+ * Create Academic User & Profile
  */
-export async function createUserAction(formData: any, role: UserRole, level: number) {
-    const admin = await validateAccess(80); // Academic Admin+
+export async function createUserAction(formData: any, roleName: string, level: number) {
+    const admin = await validateAccess(80);
 
-
-    // 1. Create entry in 'users' table
-    const { error: userError } = await supabaseAdmin
+    // 1. Create User
+    const { data: user, error: userError } = await supabaseAdmin
         .from('users')
         .insert([{
             uid_eid: formData.uid_eid,
-            role: role,
+            password_hash: formData.password || 'Welcome@123',
             role_level: level,
             department_id: formData.department_id,
-            password_hash: formData.password
-        }]);
+            is_active: true
+        }])
+        .select()
+        .single();
 
     if (userError) throw new Error(userError.message);
 
-    // log
+    // 2. Profile Table
+    if (level === 10) {
+        const { error: sError } = await supabaseAdmin.from('students').insert([{
+            uid: formData.uid_eid,
+            name: formData.name,
+            email: formData.email,
+            department_id: formData.department_id,
+            course_id: formData.course_id,
+            current_semester_id: formData.current_semester_id,
+            roll_number: formData.roll_number,
+            enrollment_number: formData.enrollment_number,
+            admission_year: formData.admission_year || new Date().getFullYear()
+        }]);
+        if (sError) throw new Error(sError.message);
+    } else {
+        const { error: eError } = await supabaseAdmin.from('employees').insert([{
+            eid: formData.uid_eid,
+            name: formData.name,
+            email: formData.email,
+            designation: formData.designation,
+            department_id: formData.department_id,
+            qualification: formData.qualification
+        }]);
+        if (eError) throw new Error(eError.message);
+    }
+
     await logAuditEventAction({
         performed_by: admin.uid_eid,
         action: 'CREATE_USER',
         entity_type: 'users',
         entity_id: formData.uid_eid,
         old_values: null,
-        new_values: { role, level, dept: formData.department_id }
+        new_values: { level, dept: formData.department_id }
     });
 
-    // 2. Create entry in corresponding profile table
-    if (role === 'student') {
-        const { error: studentError } = await supabaseAdmin
-            .from('students')
-            .insert([{
-                uid: formData.uid_eid,
-                name: formData.name,
-                department: formData.department, // legacy string
-                department_id: formData.department_id, // new UUID
-                course_id: formData.course_id,
-                year: Number(formData.year),
-                email: formData.email,
-                dob: formData.dob || null,
-                blood_group: formData.blood_group || null,
-                admission_year: formData.admission_year || new Date().getFullYear(),
-                program_code: formData.program_code || 'B.TECH',
-                current_semester: formData.current_semester || 1,
-                address: formData.address || null,
-                contact_number: formData.contact_number || null
-            }]);
-        if (studentError) throw new Error(studentError.message);
-    } else {
-        const { error: employeeError } = await supabaseAdmin
-            .from('employees')
-            .insert([{
-                eid: formData.uid_eid,
-                name: formData.name,
-                designation: role === 'admin' ? 'Administrator' : formData.designation,
-                department: formData.department,
-                department_id: formData.department_id,
-                email: formData.email,
-                dob: formData.dob || null,
-                contact_number: formData.contact_number || null,
-                address: formData.address || null
-            }]);
-        if (employeeError) throw new Error(employeeError.message);
-    }
-
     revalidatePath('/dashboard/admin');
-    revalidatePath('/dashboard/faculty'); // If faculty needs updated student list
     return { success: true };
 }
 
 /**
- * Server Action to fetch student profile
+ * Submit Marks (Faculty)
  */
+export async function submitMarksAction(marks: Partial<MarksSubmission>[]) {
+    const user = await validateAccess(50);
+
+    const { error } = await supabaseAdmin
+        .from('marks_submissions')
+        .upsert(marks.map(m => ({
+            ...m,
+            submitted_by: user.uid_eid,
+            status: 'pending_hod',
+            updated_at: new Date().toISOString()
+        })));
+
+    if (error) throw new Error(error.message);
+    revalidatePath('/dashboard/faculty');
+    return { success: true };
+}
+
+/**
+ * Approve Marks (HOD/Admin)
+ */
+export async function approveMarksAction(submissionIds: string[], nextStatus: SubmissionStatus) {
+    const requiredLevel = nextStatus === 'approved' ? 80 : 70;
+    const user = await validateAccess(requiredLevel);
+
+    const updateData: any = { status: nextStatus, updated_at: new Date().toISOString() };
+    if (requiredLevel === 70) updateData.approved_by_hod = user.uid_eid;
+    if (requiredLevel === 80) updateData.approved_by_admin = user.uid_eid;
+
+    const { error } = await supabaseAdmin
+        .from('marks_submissions')
+        .update(updateData)
+        .in('id', submissionIds);
+
+    if (error) throw new Error(error.message);
+
+    revalidatePath('/dashboard/hod');
+    revalidatePath('/dashboard/admin');
+    return { success: true };
+}
+
+/**
+ * Attendance Management
+ */
+export async function markAttendanceAction(records: any[]) {
+    const user = await validateAccess(50);
+    const { error } = await supabaseAdmin
+        .from('attendance')
+        .insert(records.map(r => ({
+            student_uid: r.uid || r.student_uid,
+            subject_id: r.subject_id,
+            subject_code: r.subject_code,
+            date: r.date,
+            status: r.status,
+            marked_by: user.uid_eid
+        })));
+
+    if (error) throw new Error(error.message);
+    return { success: true };
+}
+
+/**
+ * Calculate & Publish Semester Result
+ */
+export async function generateResultAction(studentUid: string, semesterId: string) {
+    const admin = await validateAccess(80);
+
+    // 1. Get all approved marks for this student and semester
+    const { data: marks, error: mError } = await supabaseAdmin
+        .from('marks_submissions')
+        .select('*, subjects(credits)')
+        .eq('student_uid', studentUid)
+        .eq('semester_id', semesterId)
+        .eq('status', 'approved');
+
+    if (mError) throw new Error(mError.message);
+    if (!marks || marks.length === 0) throw new Error('No approved marks found for this semester.');
+
+    // 2. GPA Logic
+    let totalPoints = 0;
+    let totalCredits = 0;
+
+    marks.forEach(m => {
+        const credits = (m.subjects as any).credits;
+        totalPoints += (m.points || 0) * credits;
+        totalCredits += credits;
+    });
+
+    const sgpa = totalCredits > 0 ? totalPoints / totalCredits : 0;
+
+    // 3. Upsert Result
+    const { error: rError } = await supabaseAdmin
+        .from('semester_results')
+        .upsert([{
+            student_uid: studentUid,
+            semester_id: semesterId,
+            sgpa: sgpa,
+            total_credits: totalCredits,
+            earned_credits: totalCredits, // Simplified
+            result_status: sgpa >= 4.0 ? 'Pass' : 'Fail',
+            is_published: false
+        }]);
+
+    if (rError) throw new Error(rError.message);
+    return { success: true, sgpa };
+}
+
+/**
+ * Institutional Data
+ */
+export async function getDepartmentsAction() {
+    const { data, error } = await supabaseAdmin.from('departments').select('*').order('name');
+    if (error) throw new Error(error.message);
+    return data;
+}
+
+export async function getCoursesAction(deptId?: string) {
+    let query = supabaseAdmin.from('courses').select('*');
+    if (deptId) query = query.eq('dept_id', deptId);
+    const { data, error } = await query.order('name');
+    if (error) throw new Error(error.message);
+    return data;
+}
+
+export async function getSemestersAction(courseId?: string) {
+    let query = supabaseAdmin.from('semesters').select('*');
+    if (courseId) query = query.eq('course_id', courseId);
+    const { data, error } = await query.order('semester_number');
+    if (error) throw new Error(error.message);
+    return data;
+}
+
+/**
+ * User Meta
+ */
+export async function getAllUsersAction() {
+    const user = await validateAccess(80);
+    const { data, error } = await supabaseAdmin.from('users').select('*').order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data;
+}
+
+export async function getAuditLogsAction() {
+    const user = await validateAccess(80);
+    const { data, error } = await supabaseAdmin.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(200);
+    if (error) throw new Error(error.message);
+    return data;
+}
+
+export async function updateStudentProfileActionFull(uid: string, data: Partial<Student>) {
+    await validateAccess(80);
+    const { error } = await supabaseAdmin.from('students').update(data).eq('uid', uid);
+    if (error) throw new Error(error.message);
+    return { success: true };
+}
+
+export async function getAllTimetablesAction() {
+    const user = await validateAccess(70);
+    let query = supabaseAdmin.from('timetables').select('*, subjects(name, subject_code), employees(name)');
+    if (user.role_level < 80) query = query.eq('department_id', user.department_id);
+    const { data, error } = await query.order('day').order('start_time');
+    if (error) throw new Error(error.message);
+    return data;
+}
+
+/**
+ * Student-Specific Data Actions
+ */
+
 export async function getStudentProfileAction(uid: string) {
-    const user = await validateAccess(10);
-
-    // Security: Students can only see their own profile
-    if (user.role_level === 10 && user.uid_eid !== uid) {
-        throw new Error('Forbidden');
-    }
-
+    await validateAccess(10);
     const { data, error } = await supabaseAdmin
         .from('students')
-        .select('*, courses(name), departments(name)')
+        .select('*, departments(name), courses(name), semesters(semester_number)')
         .eq('uid', uid)
         .single();
-
     if (error) throw new Error(error.message);
     return data as Student;
 }
 
-/**
- * Server Action to update an academic record
- */
-export async function updateAcademicRecordAction(id: string, data: Partial<AcademicRecord>) {
-    const user = await validateAccess(60); // Faculty+
-
-    // 1. Fetch current status to check locking
-    const { data: current } = await supabaseAdmin
-        .from('academic_records')
-        .select('status, uid')
-        .eq('record_id', id)
-        .single();
-
-    if (current?.status === 'approved' && user.role_level < 80) {
-        throw new Error('Record is locked and approved. Contact Academic Admin to modify.');
-    }
-
-    const { error } = await supabaseAdmin
-        .from('academic_records')
-        .update({
-            ...data,
-            updated_by: user.uid_eid,
-            updated_at: new Date().toISOString()
-        })
-        .eq('record_id', id);
-
-    if (error) throw new Error(error.message);
-
-    // log
-    await logAuditEventAction({
-        performed_by: user.uid_eid,
-        action: 'UPDATE_MARK',
-        entity_type: 'academic_records',
-        entity_id: id,
-        old_values: current,
-        new_values: data
-    });
-
-    revalidatePath('/dashboard/student');
-    revalidatePath('/dashboard/faculty');
-    return { success: true };
-}
-
-/**
- * Server Action to delete an academic record (Admin only)
- */
-export async function deleteAcademicRecordAction(id: string) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
-
-    const { error } = await supabaseAdmin
-        .from('academic_records')
-        .delete()
-        .eq('id', id);
-
-    if (error) throw new Error(error.message);
-
-    revalidatePath('/dashboard/student');
-    revalidatePath('/dashboard/faculty');
-    return { success: true };
-}
-
-/**
- * Server Action to reset user password (Admin only)
- */
-export async function resetUserPasswordAction(uid_eid: string, newPassword: string) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
-
-
-    const { error } = await supabaseAdmin
-        .from('users')
-        .update({ password_hash: newPassword })
-        .eq('uid_eid', uid_eid);
-
-    if (error) throw new Error(error.message);
-    return { success: true };
-}
-
-/**
- * Server Action to update user role (Admin only)
- */
-export async function updateUserRoleAction(uid_eid: string, newRole: UserRole) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
-
-    const { error } = await supabaseAdmin
-        .from('users')
-        .update({ role: newRole })
-        .eq('uid_eid', uid_eid);
-
-    if (error) throw new Error(error.message);
-
-    revalidatePath('/dashboard/admin');
-    return { success: true };
-}
-
-/**
- * Server Action to fetch all users (Admin oversight)
- */
-export async function getAllUsersAction() {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
-
+export async function getAcademicRecordsAction(uid: string) {
+    await validateAccess(10);
     const { data, error } = await supabaseAdmin
-        .from('users')
-        .select('uid_eid, role, created_at')
-        .order('created_at', { ascending: false });
-
+        .from('academic_records')
+        .select('*')
+        .eq('uid', uid)
+        .order('semester', { ascending: false });
     if (error) throw new Error(error.message);
-    return data;
+    return data as AcademicRecord[];
 }
 
-// --- NEW ACTIONS V2.0 ---
-
-/**
- * Fetch subject-wise stats for a student
- */
 export async function getAttendanceAction(uid: string) {
-    const user = await validateAccess(10);
-    if (user.role_level === 10 && user.uid_eid !== uid) throw new Error('Forbidden');
-
+    await validateAccess(10);
     const { data, error } = await supabaseAdmin
         .from('attendance')
         .select('*, subjects(name)')
-        .eq('uid', uid);
-
+        .eq('student_uid', uid)
+        .order('date', { ascending: false });
     if (error) throw new Error(error.message);
     return data as (Attendance & { subjects: { name: string } })[];
 }
 
-/**
- * Mark attendance for multiple students (Faculty)
- */
-export async function markAttendanceAction(records: Partial<Attendance>[]) {
-    const user = await validateAccess(50); // Asst faculty+
-
-    const { error } = await supabaseAdmin
-        .from('attendance')
-        .insert(records.map(r => ({ ...r, marked_by: user.uid_eid })));
-
-    if (error) throw new Error(error.message);
-    revalidatePath('/dashboard/student');
-    return { success: true };
-}
-
-/**
- * Fetch internal assessments for a student
- */
 export async function getInternalAssessmentsAction(uid: string) {
-    const user = await validateAccess(10);
-    if (user.role_level === 10 && user.uid_eid !== uid) throw new Error('Forbidden');
-
+    await validateAccess(10);
     const { data, error } = await supabaseAdmin
         .from('internal_assessments')
-        .select('*, subjects(name)')
-        .eq('uid', uid);
-
+        .select('*, subjects!inner(name)')
+        .eq('uid', uid)
+        .order('created_at', { ascending: false });
+    // Note: subjects!inner is needed if we use subject_code as FK
     if (error) throw new Error(error.message);
-    return data as (InternalAssessment & { subjects: { name: string } })[];
+    return data as any[];
 }
 
-/**
- * Upsert internal assessment marks (Faculty)
- */
-export async function upsertInternalMarksAction(records: Partial<InternalAssessment>[]) {
-    const user = await validateAccess(50);
+export async function getTimetableAction(type: 'student' | 'faculty', id: string) {
+    await validateAccess(10);
+    let query = supabaseAdmin.from('timetables').select('*, subjects(name, subject_code), employees(name)');
 
-    const { error } = await supabaseAdmin
-        .from('internal_assessments')
-        .upsert(records.map(r => ({
-            ...r,
-            evaluated_by: user.uid_eid,
-            status: 'draft'
-        })));
-
-    if (error) throw new Error(error.message);
-    revalidatePath('/dashboard/student');
-    return { success: true };
-}
-
-/**
- * Fetch timetable based on role
- */
-export async function getTimetableAction(role: UserRole, id: string) {
-    const session = await getServerSession(authOptions);
-    if (!session) throw new Error('Unauthorized');
-
-    let query = supabaseAdmin.from('timetables').select('*, subjects(name), employees(name)');
-
-    if (role === 'student') {
-        const { data: student } = await supabaseAdmin.from('students').select('current_semester').eq('uid', id).single();
-        query = query.eq('semester', student?.current_semester || 1);
+    if (type === 'student') {
+        const { data: student } = await supabaseAdmin.from('students').select('course_id, current_semester_id').eq('uid', id).single();
+        if (student) {
+            query = query.eq('course_id', student.course_id).eq('semester_id', student.current_semester_id);
+        }
     } else {
-        query = query.eq('eid', id);
+        query = query.eq('faculty_eid', id);
     }
 
-    const { data, error } = await query.order('start_time', { ascending: true });
+    const { data, error } = await query.order('day').order('start_time');
     if (error) throw new Error(error.message);
-    return data as (Timetable & { subjects: { name: string }, employees: { name: string } })[];
+    return data as any[];
 }
 
-/**
- * Fetch all timetable records (Admin)
- */
-export async function getAllTimetablesAction() {
-    const user = await validateAccess(70); // HOD+
-
-    let query = supabaseAdmin
-        .from('timetables')
-        .select('*, subjects(name, subject_code), employees(name)');
-
-    // Isolation
-    if (user.role_level < 80) {
-        query = query.eq('department_id', user.department_id); // Assuming dept_id on timetable
-    }
-
-    const { data, error } = await query
-        .order('day', { ascending: true })
-        .order('start_time', { ascending: true });
-
-    if (error) throw new Error(error.message);
-    return data;
-}
-
-/**
- * Fetch all subjects
- */
-export async function getSubjectsAction() {
-    const { data, error } = await supabaseAdmin.from('subjects').select('*');
-    if (error) throw new Error(error.message);
-    return data as Subject[];
-}
-
-/**
- * Update full student profile (Admin)
- */
-export async function updateStudentProfileActionFull(uid: string, data: Partial<Student>) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
-
-    const { error } = await supabaseAdmin
-        .from('students')
-        .update(data)
-        .eq('uid', uid);
-
-    if (error) throw new Error(error.message);
-    revalidatePath('/dashboard/student');
-    revalidatePath('/dashboard/admin');
-    return { success: true };
-}
-
-/**
- * Fetch qualifications for a student
- */
 export async function getQualificationsAction(uid: string) {
+    await validateAccess(10);
     const { data, error } = await supabaseAdmin
         .from('qualifications')
         .select('*')
-        .eq('uid', uid);
+        .eq('uid', uid)
+        .order('year_of_passing', { ascending: false });
     if (error) throw new Error(error.message);
     return data as Qualification[];
 }
 
 /**
- * Upsert timetable slot with conflict detection (Admin)
+ * Faculty Operations (Batch & Management)
  */
-export async function upsertTimetableAction(record: Partial<Timetable>) {
-    const session = await getServerSession(authOptions);
-    if (!session || session.user.role !== 'admin') throw new Error('Unauthorized');
 
-    // Conflict detection: Same day, overlapping time, same room OR same teacher
-    const { data: conflicts, error: conflictError } = await supabaseAdmin
-        .from('timetables')
-        .select('*')
-        .match({ day: record.day })
-        .or(`room.eq.${record.room},eid.eq.${record.eid}`)
-        .filter('start_time', 'lt', record.end_time)
-        .filter('end_time', 'gt', record.start_time);
-
-    if (conflictError) throw new Error(conflictError.message);
-
-    // Check if any conflict exists (excluding the same record if editing)
-    const realConflicts = conflicts.filter(c => c.id !== record.id);
-    if (realConflicts.length > 0) {
-        throw new Error(`Schedule Conflict: ${realConflicts[0].room} is occupied or teacher is busy.`);
-    }
-
+export async function upsertInternalMarksAction(marks: any[]) {
+    const user = await validateAccess(50);
     const { error } = await supabaseAdmin
-        .from('timetables')
-        .upsert([record]);
+        .from('internal_assessments')
+        .upsert(marks.map(m => ({
+            ...m,
+            uid: m.uid,
+            evaluated_by: user.uid_eid,
+            status: 'draft',
+            updated_at: new Date().toISOString()
+        })));
 
     if (error) throw new Error(error.message);
-    revalidatePath('/dashboard/admin');
-    revalidatePath('/dashboard/student');
+    return { success: true };
+}
+
+export async function submitMarksForApprovalAction(subjectCode: string, assessmentType: string) {
+    const user = await validateAccess(50);
+    const { error } = await supabaseAdmin
+        .from('internal_assessments')
+        .update({ status: 'pending_hod' })
+        .eq('subject_code', subjectCode)
+        .eq('assessment_type', assessmentType)
+        .eq('evaluated_by', user.uid_eid)
+        .eq('status', 'draft');
+
+    if (error) throw new Error(error.message);
     revalidatePath('/dashboard/faculty');
     return { success: true };
 }
 
-/**
- * Calculate GPA for a student (Admin/Automated)
- */
-export async function calculateGpaAction(uid: string) {
-    const user = await validateAccess(70); // HOD+
-
-    // 1. Get all academic records
-    const records = await getAcademicRecordsAction(uid);
-    // 2. Get all subjects to know credits
-    const subjects = await getSubjectsAction();
-
-    const gradeMap: Record<string, number> = {
-        'O': 10, 'A+': 9, 'A': 8, 'B+': 7, 'B': 6, 'C': 5, 'P': 4, 'F': 0
-    };
-
-    const semesterStats: Record<number, { totalPoints: number, totalCredits: number }> = {};
-
-    records.forEach(rec => {
-        const sub = subjects.find(s => s.subject_code === rec.subject);
-        if (!sub) return;
-
-        const gradePoints = gradeMap[rec.grade] || 0;
-        const sem = rec.semester;
-
-        if (!semesterStats[sem]) semesterStats[sem] = { totalPoints: 0, totalCredits: 0 };
-
-        semesterStats[sem].totalPoints += (gradePoints * sub.credits);
-        semesterStats[sem].totalCredits += sub.credits;
-    });
-
-    // We don't store GPA in DB directly in this simple version, but return it for UI
-    return Object.entries(semesterStats).map(([sem, stats]) => ({
-        semester: Number(sem),
-        sgpa: stats.totalCredits > 0 ? (stats.totalPoints / stats.totalCredits).toFixed(2) : '0.00'
-    }));
-}
-
-/**
- * Institutional Data Fetching
- */
-export async function getDepartmentsAction() {
-    const user = await validateAccess(10); // All levels can see depts for dropdowns
-    const { data, error } = await supabaseAdmin
-        .from('departments')
-        .select('*')
-        .order('name');
+export async function createAcademicRecordAction(record: Partial<AcademicRecord>) {
+    await validateAccess(60);
+    const { error } = await supabaseAdmin.from('academic_records').insert([record]);
     if (error) throw new Error(error.message);
-    return data as any[];
-}
-
-export async function getCoursesAction(dept_id?: string) {
-    const user = await validateAccess(10);
-    let query = supabaseAdmin.from('courses').select('*');
-    if (dept_id) query = query.eq('dept_id', dept_id);
-    const { data, error } = await query.order('name');
-    if (error) throw new Error(error.message);
-    return data as any[];
-}
-
-/**
- * Bulk Student Upload
- */
-export async function bulkUploadStudentsAction(students: any[]) {
-    const admin = await validateAccess(80);
-
-    for (const s of students) {
-        try {
-            await createUserAction(s, 'student', 10);
-        } catch (err) {
-            console.error(`Failed to upload ${s.uid_eid}:`, err);
-        }
-    }
-    revalidatePath('/dashboard/admin');
+    revalidatePath('/dashboard/faculty');
     return { success: true };
 }
 
-/**
- * Audit Logs Retrieval
- */
-export async function getAuditLogsAction() {
-    const user = await validateAccess(80); // Academic Admin+
-    const { data, error } = await supabaseAdmin
-        .from('audit_logs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(100);
+export async function updateAcademicRecordAction(id: string, data: Partial<AcademicRecord>) {
+    await validateAccess(60);
+    const { error } = await supabaseAdmin.from('academic_records').update(data).eq('record_id', id);
     if (error) throw new Error(error.message);
-    return data;
+    revalidatePath('/dashboard/faculty');
+    return { success: true };
 }
+

@@ -22,41 +22,47 @@ export const authOptions: NextAuthOptions = {
 
                 if (error || !user) return null;
 
+                // Simple check for now, in production use bcrypt
                 const isValid = credentials.password === user.password_hash;
                 if (!isValid) return null;
 
                 return {
                     id: user.id,
                     uid_eid: user.uid_eid,
-                    role: user.role,
                     role_level: user.role_level,
                     department_id: user.department_id
-                };
+                } as any;
             }
         })
     ],
     callbacks: {
-        async jwt({ token, user }) {
+        async jwt({ token, user }: any) {
             if (user) {
                 token.id = user.id;
                 token.uid_eid = user.uid_eid;
-                token.role = user.role;
-                (token as any).role_level = (user as any).role_level;
-                (token as any).department_id = (user as any).department_id;
+                token.role_level = user.role_level;
+                token.department_id = user.department_id;
+
+                // Map numeric level to a string role for frontend convenience
+                if (user.role_level >= 80) token.role = 'admin';
+                else if (user.role_level >= 70) token.role = 'hod';
+                else if (user.role_level >= 50) token.role = 'faculty';
+                else token.role = 'student';
             }
             return token;
         },
-        async session({ session, token }) {
+        async session({ session, token }: any) {
             if (token) {
                 session.user.id = token.id;
                 session.user.uid_eid = token.uid_eid;
+                session.user.role_level = token.role_level;
+                session.user.department_id = token.department_id;
                 session.user.role = token.role;
-                (session.user as any).role_level = (token as any).role_level;
-                (session.user as any).department_id = (token as any).department_id;
             }
             return session;
         }
     },
+
     pages: {
         signIn: "/auth/login",
     },

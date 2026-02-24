@@ -4,8 +4,6 @@ import React, { useEffect, useState, useMemo } from 'react';
 import {
     createUserAction,
     getAllUsersAction,
-    resetUserPasswordAction,
-    updateUserRoleAction,
     getSubjectsAction,
     getStudentsAction,
     getEmployeesAction,
@@ -27,7 +25,7 @@ import {
     Briefcase, GraduationCap, MapPin, Phone, Mail, Globe,
     ArrowRight, Info, Plus, Printer
 } from 'lucide-react';
-import { UserRole, Student, Employee, Subject } from '@/types';
+import { Student, Employee, Subject, UserLevel, UserRoleName } from '@/types';
 
 type AdminTab = 'users' | 'registry' | 'subjects' | 'timetables' | 'analytics' | 'audit';
 
@@ -50,14 +48,21 @@ export default function AdminDashboard() {
     const [roleFilter, setRoleFilter] = useState('All');
 
     // Registration Form
-    const [regRole, setRegRole] = useState<UserRole>('student');
-    const [regLevel, setRegLevel] = useState(10);
+    const [regRoleName, setRegRoleName] = useState<UserRoleName>('Student');
+    const [regLevel, setRegLevel] = useState<UserLevel>(10);
     const [regData, setRegData] = useState({
-        uid_eid: '', name: '', email: '', department: '', password: '',
-        department_id: '', course_id: '',
-        year: 1, designation: '', dob: '', blood_group: '',
-        admission_year: new Date().getFullYear(), program_code: 'B.TECH',
-        current_semester: 1, address: '', contact_number: ''
+        uid_eid: '',
+        name: '',
+        email: '',
+        department_id: '',
+        course_id: '',
+        current_semester_id: '',
+        password: '',
+        designation: '',
+        qualification: '',
+        roll_number: '',
+        enrollment_number: '',
+        admission_year: new Date().getFullYear()
     });
 
     // Profile Management Modal
@@ -99,14 +104,14 @@ export default function AdminDashboard() {
         e.preventDefault();
         setLoading(true);
         try {
-            await createUserAction(regData, regRole, regLevel);
+            await createUserAction(regData, regRoleName, regLevel);
             alert('Account provisioned successfully');
             setRegData({
-                uid_eid: '', name: '', email: '', department: '', password: '',
-                department_id: '', course_id: '',
-                year: 1, designation: '', dob: '', blood_group: '',
-                admission_year: new Date().getFullYear(), program_code: 'B.TECH',
-                current_semester: 1, address: '', contact_number: ''
+                uid_eid: '', name: '', email: '',
+                department_id: '', course_id: '', current_semester_id: '',
+                password: '', designation: '', qualification: '',
+                roll_number: '', enrollment_number: '',
+                admission_year: new Date().getFullYear()
             });
             fetchInitialData();
             setActiveTab('users');
@@ -286,17 +291,17 @@ export default function AdminDashboard() {
                                         <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest ml-1">Hierarchical Role Assignment</label>
                                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                                             {[
-                                                { id: 'student', level: 10, label: 'Student' },
-                                                { id: 'assistant_faculty', level: 50, label: 'Asst. Faculty' },
-                                                { id: 'faculty', level: 60, label: 'Professor' },
-                                                { id: 'hod', level: 70, label: 'HOD' },
-                                                { id: 'admin', level: 80, label: 'Acad Admin' },
-                                                { id: 'admin', level: 100, label: 'Super Admin' }
+                                                { name: 'Student', level: 10, label: 'Student' },
+                                                { name: 'Assistant Faculty', level: 50, label: 'Asst. Faculty' },
+                                                { name: 'Faculty', level: 60, label: 'Professor' },
+                                                { name: 'HOD', level: 70, label: 'HOD' },
+                                                { name: 'Academic Admin', level: 80, label: 'Acad Admin' },
+                                                { name: 'Super Admin', level: 100, label: 'Super Admin' }
                                             ].map(r => (
                                                 <button
-                                                    key={`${r.id}-${r.level}`}
+                                                    key={`${r.name}-${r.level}`}
                                                     type="button"
-                                                    onClick={() => { setRegRole(r.id as UserRole); setRegLevel(r.level); }}
+                                                    onClick={() => { setRegRoleName(r.name as UserRoleName); setRegLevel(r.level as UserLevel); }}
                                                     className={`py-3 px-4 text-[10px] font-black rounded-xl uppercase tracking-widest transition-all border-2 ${regLevel === r.level ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg' : 'bg-stone-50 text-stone-300 border-transparent hover:text-stone-500'
                                                         }`}
                                                 >
@@ -345,8 +350,7 @@ export default function AdminDashboard() {
                                                     className="w-full h-14 px-6 bg-stone-50 border-0 rounded-2xl font-bold text-stone-800 outline-none focus:ring-4 focus:ring-indigo-50 appearance-none"
                                                     value={regData.department_id}
                                                     onChange={e => {
-                                                        const dept = departments.find(d => d.id === e.target.value);
-                                                        setRegData({ ...regData, department_id: e.target.value, department: dept?.name || '' });
+                                                        setRegData({ ...regData, department_id: e.target.value });
                                                     }}
                                                     required
                                                 >
@@ -354,7 +358,7 @@ export default function AdminDashboard() {
                                                     {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                                                 </select>
                                             </div>
-                                            {regRole === 'student' && (
+                                            {regRoleName === 'Student' && (
                                                 <div className="space-y-2">
                                                     <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest ml-1">Academic Program (Course)</label>
                                                     <select
@@ -364,7 +368,7 @@ export default function AdminDashboard() {
                                                         required
                                                     >
                                                         <option value="">Select Course</option>
-                                                        {courses.filter(c => c.dept_id === regData.department_id).map(c => (
+                                                        {courses.filter(c => c.department_id === regData.department_id).map(c => (
                                                             <option key={c.id} value={c.id}>{c.name}</option>
                                                         ))}
                                                     </select>

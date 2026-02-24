@@ -45,14 +45,17 @@ export default function LoginPage() {
             setError('Invalid credentials. Please try again.');
             setIsLoading(false);
         } else {
-            // Fetch session to determine role and redirect
+            // Force session refresh and redirect
             const response = await fetch('/api/auth/session');
-            const session = await response.json();
+            const data = await response.json();
 
-            const role = session?.user?.role;
-            if (role === 'student') router.push('/dashboard/student');
-            else if (role === 'faculty') router.push('/dashboard/faculty');
-            else if (role === 'admin') router.push('/dashboard/admin');
+            const role = data?.user?.role;
+            const level = data?.user?.role_level;
+
+            if (role === 'admin' || level >= 80) router.push('/dashboard/admin');
+            else if (role === 'hod' || level === 70) router.push('/dashboard/hod');
+            else if (role === 'faculty' || level >= 50) router.push('/dashboard/faculty');
+            else if (role === 'student' || level === 10) router.push('/dashboard/student');
             else router.push('/');
         }
     };

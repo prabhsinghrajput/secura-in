@@ -19,14 +19,28 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname();
 
-    const role = session?.user?.role;
+    const roleLevel = (session?.user as any)?.role_level || 0;
+    const uid_eid = session?.user?.uid_eid;
+
+    const getDashboardPath = () => {
+        if (roleLevel >= 100) return '/dashboard/admin'; // Super Admin
+        if (roleLevel >= 80) return '/dashboard/admin'; // Acad Admin
+        if (roleLevel >= 70) return '/dashboard/hod';
+        if (roleLevel >= 60) return '/dashboard/faculty';
+        if (roleLevel >= 50) return '/dashboard/assistant-faculty';
+        return '/dashboard/student';
+    };
+
+    const dashboardPath = getDashboardPath();
 
     const menuItems = [
-        { label: 'Overview', icon: LayoutDashboard, href: `/dashboard/${role}`, roles: ['student', 'faculty', 'admin'] },
-        { label: 'Records', icon: FileText, href: `/dashboard/${role}/records`, roles: ['student', 'faculty'] },
-        { label: 'Users', icon: Users, href: '/dashboard/admin/users', roles: ['admin'] },
-        { label: 'Profile', icon: User, href: `/dashboard/${role}/profile`, roles: ['student', 'faculty', 'admin'] },
-    ].filter(item => item.roles.includes(role || ''));
+        { label: 'Intelligence', icon: LayoutDashboard, href: dashboardPath, minLevel: 10 },
+        { label: 'Registry', icon: Users, href: '/dashboard/admin?tab=users', minLevel: 80 },
+        { label: 'Curriculum', icon: FileText, href: '/dashboard/admin?tab=subjects', minLevel: 80 },
+        { label: 'Staffing', icon: Users, href: '/dashboard/hod', minLevel: 70 },
+        { label: 'Personal Identity', icon: User, href: `/dashboard/student`, minLevel: 10 },
+    ].filter(item => roleLevel >= item.minLevel);
+
 
     return (
         <div className="min-h-screen bg-stone-50 flex">
@@ -60,11 +74,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 <div className="mt-auto p-6 space-y-4">
                     <div className="flex items-center gap-3 px-3">
                         <div className="w-8 h-8 rounded-full bg-stone-800 flex items-center justify-center text-xs font-bold text-indigo-400">
-                            {session?.user?.name?.[0] || session?.user?.role?.[0]?.toUpperCase()}
+                            {session?.user?.name?.[0] || 'U'}
                         </div>
                         <div className="truncate">
                             <p className="text-sm font-medium text-white truncate">{session?.user?.name || session?.user?.uid_eid}</p>
-                            <p className="text-xs text-stone-500 capitalize">{session?.user?.role}</p>
+                            <p className="text-[10px] text-stone-500 font-bold uppercase tracking-tight">Level {roleLevel} Access</p>
                         </div>
                     </div>
                     <button
