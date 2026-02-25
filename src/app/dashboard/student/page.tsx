@@ -8,7 +8,9 @@ import {
     getAttendanceAction,
     getInternalAssessmentsAction,
     getTimetableAction,
-    getQualificationsAction
+    getQualificationsAction,
+    updateStudentProfileAction,
+    getStudentMarksAction
 } from '@/lib/actions';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardHeader, CardContent } from '@/components/ui/Card';
@@ -38,6 +40,7 @@ export default function StudentDashboard() {
     const [assessments, setAssessments] = useState<InternalAssessment[]>([]);
     const [timetable, setTimetable] = useState<Timetable[]>([]);
     const [qualifications, setQualifications] = useState<Qualification[]>([]);
+    const [modularMarks, setModularMarks] = useState<any[]>([]);
 
     useEffect(() => {
         if (session?.user?.uid_eid) {
@@ -49,13 +52,14 @@ export default function StudentDashboard() {
         setLoading(true);
         const uid = session?.user?.uid_eid!;
         try {
-            const [p, r, a, as, t, q] = await Promise.all([
+            const [p, r, a, as, t, q, m] = await Promise.all([
                 getStudentProfileAction(uid),
                 getAcademicRecordsAction(uid),
                 getAttendanceAction(uid),
                 getInternalAssessmentsAction(uid),
                 getTimetableAction('student', uid),
-                getQualificationsAction(uid)
+                getQualificationsAction(uid),
+                getStudentMarksAction(uid)
             ]);
             setProfile(p);
             setRecords(r);
@@ -63,8 +67,28 @@ export default function StudentDashboard() {
             setAssessments(as);
             setTimetable(t);
             setQualifications(q);
+            setModularMarks(m || []);
         } catch (error) {
             console.error('Error fetching data:', error);
+        }
+        setLoading(false);
+    };
+
+    const handleUpdateProfile = async () => {
+        const contact = prompt('Update Contact Number:', profile?.contact_number || '');
+        const address = prompt('Update Address:', profile?.address || '');
+        if (contact === null && address === null) return;
+
+        setLoading(true);
+        try {
+            await updateStudentProfileAction(session?.user?.uid_eid!, {
+                contact_number: contact || profile?.contact_number,
+                address: address || profile?.address
+            });
+            alert('Profile updated successfully.');
+            fetchAllData();
+        } catch (err: any) {
+            alert(err.message);
         }
         setLoading(false);
     };
@@ -115,13 +139,32 @@ export default function StudentDashboard() {
     }, [records]);
 
     const groupedRecords = useMemo(() => {
-        return records.reduce((acc, record) => {
+        const allRecords = [...records];
+
+        // Map modular marks to AcademicRecord structure
+        modularMarks.forEach(m => {
+            allRecords.push({
+                record_id: m.id,
+                uid: m.student_uid,
+                subject: m.subjects?.name || 'Unknown',
+                subject_code: m.subjects?.subject_code || '',
+                grade: m.grade || 'NA',
+                marks: m.total_marks,
+                semester: m.semesters?.semester_number || 0,
+                status: m.status,
+                external_marks: m.external_marks,
+                internal_total: (m.internal_marks || 0) + (m.mid_term_marks || 0) + (m.practical_marks || 0),
+                created_at: m.created_at
+            });
+        });
+
+        return allRecords.reduce((acc, record) => {
             const sem = record.semester;
             if (!acc[sem]) acc[sem] = [];
             acc[sem].push(record);
             return acc;
         }, {} as Record<number, AcademicRecord[]>);
-    }, [records]);
+    }, [records, modularMarks]);
 
     const currentDay = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(new Date());
 
@@ -399,6 +442,9 @@ export default function StudentDashboard() {
                                         )) : (
                                             <p className="text-sm text-stone-400 font-medium italic">Background history not yet populated.</p>
                                         )}
+                                        <Button variant="primary" className="w-full h-14 rounded-2xl bg-indigo-600 font-black shadow-xl shadow-indigo-100 mt-6" onClick={handleUpdateProfile}>
+                                            Edit Personal Details
+                                        </Button>
                                     </div>
                                 </CardContent>
                             </Card>
@@ -410,8 +456,8 @@ export default function StudentDashboard() {
                     <div className="space-y-8">
                         <div className="flex justify-between items-center">
                             <h2 className="text-2xl font-black text-stone-900 tracking-tight">Semester Grade Reports</h2>
-                            <Button variant="secondary" size="sm" className="font-bold text-xs rounded-xl" onClick={() => window.print()}>
-                                <Printer size={16} className="mr-2" /> Print Full Transcript
+                            <Button className="h-12 px-8 rounded-2xl bg-stone-900 text-white font-black shadow-xl shadow-stone-200" onClick={() => window.print()}>
+                                <Printer size={18} className="mr-3" /> Export Transcript (PDF)
                             </Button>
                         </div>
 
@@ -445,9 +491,16 @@ export default function StudentDashboard() {
                                                                         <Clock size={12} className="text-orange-400" />
                                                                     )}
                                                                 </div>
-                                                                <p className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">
-                                                                    {record.status?.replace('_', ' ')} • External Exam
-                                                                </p>
+                                                                <div className="flex gap-4 mt-1">
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-[8px] font-black text-stone-300 uppercase">Internal</span>
+                                                                        <span className="text-xs font-bold text-stone-500">{record.internal_total || 0}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-[8px] font-black text-stone-300 uppercase">External</span>
+                                                                        <span className="text-xs font-bold text-stone-500">{record.external_marks || 0}</span>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                             <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm border ${record.status === 'approved' ? 'bg-indigo-600 text-white border-indigo-600 shadow-lg shadow-indigo-100' : 'bg-stone-50 text-stone-300 border-stone-100'
                                                                 }`}>
@@ -458,7 +511,10 @@ export default function StudentDashboard() {
                                                             <div className="flex-1 h-1.5 bg-stone-100 rounded-full mr-4">
                                                                 <div className="h-full bg-indigo-600 rounded-full opacity-60" style={{ width: `${record.marks}%` }} />
                                                             </div>
-                                                            <span className="text-lg font-black text-stone-900">{record.marks}</span>
+                                                            <div className="text-right">
+                                                                <span className="text-[10px] font-black text-stone-300 block uppercase">Total</span>
+                                                                <span className="text-lg font-black text-stone-900">{record.marks}</span>
+                                                            </div>
                                                         </div>
                                                     </CardContent>
                                                 </Card>

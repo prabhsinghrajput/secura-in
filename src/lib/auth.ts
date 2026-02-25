@@ -16,20 +16,23 @@ export const authOptions: NextAuthOptions = {
 
                 const { data: user, error } = await supabaseAdmin
                     .from("users")
-                    .select("*")
+                    .select("*, user_roles(roles(level))")
                     .ilike("uid_eid", credentials.uid_eid)
                     .single();
 
                 if (error || !user) return null;
 
-                // Simple check for now, in production use bcrypt
                 const isValid = credentials.password === user.password_hash;
                 if (!isValid) return null;
+
+                // Calculate Highest Role Level (effective permission)
+                const roleLevels = (user.user_roles as any[])?.map(ur => ur.roles.level) || [];
+                const effectiveLevel = Math.max(user.role_level, ...roleLevels);
 
                 return {
                     id: user.id,
                     uid_eid: user.uid_eid,
-                    role_level: user.role_level,
+                    role_level: effectiveLevel,
                     department_id: user.department_id
                 } as any;
             }

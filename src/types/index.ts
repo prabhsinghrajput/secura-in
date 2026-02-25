@@ -189,6 +189,8 @@ export interface AcademicRecord {
     subject_code?: string;
     grade: string;
     marks: number;
+    external_marks?: number;
+    internal_total?: number;
     semester: number;
     status: string;
     created_at: string;

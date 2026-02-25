@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
 import {
     createUserAction,
     getAllUsersAction,
@@ -12,7 +13,16 @@ import {
     getDepartmentsAction,
     getCoursesAction,
     bulkUploadStudentsAction,
-    getAuditLogsAction
+    getAuditLogsAction,
+    deleteTimetableAction,
+    recalculateGpaAction,
+    getPendingMarksAction,
+    approveMarksAction,
+    createSubjectAction,
+    deleteSubjectAction,
+    createTimetableAction,
+    resetPasswordAction,
+    updateUserAction
 } from '@/lib/actions';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardHeader, CardContent } from '@/components/ui/Card';
@@ -23,13 +33,17 @@ import {
     Trash2, RefreshCw, Calendar, BookOpen, Search,
     Filter, MoreVertical, LayoutGrid, List, CheckCircle2,
     Briefcase, GraduationCap, MapPin, Phone, Mail, Globe,
-    ArrowRight, Info, Plus, Printer
+    ArrowRight, Info, Plus, Printer, Activity, Database, FileText
 } from 'lucide-react';
 import { Student, Employee, Subject, UserLevel, UserRoleName } from '@/types';
 
-type AdminTab = 'users' | 'registry' | 'subjects' | 'timetables' | 'analytics' | 'audit';
+type AdminTab = 'users' | 'registry' | 'subjects' | 'timetables' | 'analytics' | 'audit' | 'structure';
 
 export default function AdminDashboard() {
+    const { data: session } = useSession();
+    const userLevel = (session?.user as any)?.role_level || 0;
+    const isSuperAdmin = userLevel === 100;
+
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState<AdminTab>('users');
 
@@ -42,6 +56,7 @@ export default function AdminDashboard() {
     const [departments, setDepartments] = useState<any[]>([]);
     const [courses, setCourses] = useState<any[]>([]);
     const [auditLogs, setAuditLogs] = useState<any[]>([]);
+    const [pendingMarks, setPendingMarks] = useState<any[]>([]);
 
     // Filtering
     const [userSearch, setUserSearch] = useState('');
@@ -70,13 +85,15 @@ export default function AdminDashboard() {
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
     useEffect(() => {
-        fetchInitialData();
-    }, []);
+        if (session) {
+            fetchInitialData();
+        }
+    }, [session]);
 
     const fetchInitialData = async () => {
         setLoading(true);
         try {
-            const [u, s, e, sub, timetables, depts, crs, logs] = await Promise.all([
+            const [u, s, e, sub, timetables, depts, crs, pending, logs] = await Promise.all([
                 getAllUsersAction(),
                 getStudentsAction(),
                 getEmployeesAction(),
@@ -84,6 +101,7 @@ export default function AdminDashboard() {
                 getAllTimetablesAction(),
                 getDepartmentsAction(),
                 getCoursesAction(),
+                getPendingMarksAction(),
                 getAuditLogsAction()
             ]);
             setUsers(u);
@@ -93,7 +111,13 @@ export default function AdminDashboard() {
             setAllTimetables(timetables);
             setDepartments(depts);
             setCourses(crs);
+            setPendingMarks(pending.filter((m: any) => m.status === 'pending_admin') || []);
             setAuditLogs(logs);
+
+            if (isSuperAdmin) {
+                const logs = await getAuditLogsAction();
+                setAuditLogs(logs);
+            }
         } catch (err) {
             console.error(err);
         }
@@ -121,6 +145,81 @@ export default function AdminDashboard() {
         setLoading(false);
     };
 
+    const handleResetPassword = async (uid: string) => {
+        const targetUser = users.find(u => u.uid_eid === uid);
+        if (targetUser?.role_level >= 80 && !isSuperAdmin) {
+            alert('Insufficient permissions to reset admin passwords.');
+            return;
+        }
+
+        if (!confirm(`Reset password for ${uid}?`)) return;
+        try {
+            await resetPasswordAction(uid);
+            alert('Password reset to Welcome@123');
+        } catch (err: any) {
+            alert(err.message);
+        }
+    };
+
+    const toggleUserStatus = async (uid: string, currentStatus: boolean) => {
+        const targetUser = users.find(u => u.uid_eid === uid);
+        if (targetUser?.role_level >= 80 && !isSuperAdmin) {
+            alert('Insufficient permissions to modify admin accounts.');
+            return;
+        }
+
+        try {
+            await updateUserAction(uid, { is_active: !currentStatus });
+            alert(`User account ${!currentStatus ? 'activated' : 'deactivated'}`);
+            fetchInitialData();
+        } catch (err: any) {
+            alert(err.message);
+        }
+    };
+
+    const handleBulkIngest = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const data = JSON.parse(event.target?.result as string);
+                if (!Array.isArray(data)) throw new Error('Data must be an array of students');
+                setLoading(true);
+                const res = await bulkUploadStudentsAction(data);
+                alert(`Bulk Provision Complete: ${res.success} Success, ${res.failed} Failed`);
+                fetchInitialData();
+            } catch (err: any) {
+                alert('Invalid JSON file format: ' + err.message);
+            }
+            setLoading(false);
+        };
+        reader.readAsText(file);
+    };
+
+    const handleAddSubject = async () => {
+        const name = prompt('Subject Name:');
+        const code = prompt('Subject Code:');
+        if (!name || !code) return;
+        try {
+            await createSubjectAction({ name, subject_code: code, subject_type: 'Theory', credits: 4, max_internal: 40 });
+            alert('Subject added');
+            fetchInitialData();
+        } catch (err: any) {
+            alert(err.message);
+        }
+    };
+
+    const handleDeleteSlot = async (id: string) => {
+        if (!confirm('Delete this timetable slot?')) return;
+        try {
+            await deleteTimetableAction(id);
+            fetchInitialData();
+        } catch (err: any) {
+            alert(err.message);
+        }
+    };
+
     const filteredUsers = useMemo(() => {
         return users.filter(u => {
             const matchesSearch = u.uid_eid.toLowerCase().includes(userSearch.toLowerCase());
@@ -128,6 +227,19 @@ export default function AdminDashboard() {
             return matchesSearch && matchesRole;
         });
     }, [users, userSearch, roleFilter]);
+
+    const handleApproveMark = async (ids: string[]) => {
+        if (!confirm('Authorize these marks for official record? This will publish them to student portals.')) return;
+        setLoading(true);
+        try {
+            await approveMarksAction(ids);
+            alert('Academic Registry Updated. Results published.');
+            fetchInitialData();
+        } catch (err: any) {
+            alert(err.message);
+        }
+        setLoading(false);
+    };
 
     const TabButton = ({ id, label, icon: Icon }: { id: AdminTab, label: string, icon: any }) => (
         <button
@@ -148,18 +260,99 @@ export default function AdminDashboard() {
                 {/* Global Header */}
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8 bg-white p-8 rounded-3xl border border-stone-100 shadow-sm">
                     <div>
-                        <h1 className="text-4xl font-black text-stone-900 tracking-tight">System Core</h1>
-                        <p className="text-stone-400 font-bold mt-1 uppercase tracking-widest text-[10px]">Academic Records Institutional Hub</p>
+                        <h1 className="text-4xl font-black text-stone-900 tracking-tight">
+                            {isSuperAdmin ? 'Institutional Governance' : 'Academic Core'}
+                        </h1>
+                        <p className="text-stone-400 font-bold mt-1 uppercase tracking-widest text-[10px]">
+                            {isSuperAdmin ? 'Super Admin Control Center' : 'Academic Administration Hub'}
+                        </p>
                     </div>
                     <div className="grid grid-cols-2 sm:flex gap-2 p-1.5 bg-stone-50 rounded-2xl">
                         <TabButton id="users" label="Directory" icon={Users} />
-                        <TabButton id="registry" label="Provision" icon={UserPlus} />
+                        <TabButton id="registry" label="Registry" icon={FileText} />
+                        {isSuperAdmin && <TabButton id="structure" label="Structure" icon={Database} />}
                         <TabButton id="subjects" label="Curriculum" icon={BookOpen} />
                         <TabButton id="timetables" label="Schedule" icon={Calendar} />
                         <TabButton id="analytics" label="Pulse" icon={Globe} />
-                        <TabButton id="audit" label="Audit" icon={Shield} />
+                        {isSuperAdmin && <TabButton id="audit" label="Audit" icon={Shield} />}
                     </div>
                 </div>
+
+                {activeTab === 'registry' && (
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="flex justify-between items-center bg-white p-8 rounded-3xl border border-stone-100 shadow-sm relative overflow-hidden">
+                            <div className="absolute top-0 right-0 p-8 text-indigo-600/5">
+                                <FileText size={120} />
+                            </div>
+                            <div className="relative z-10">
+                                <h2 className="text-2xl font-black text-stone-900 tracking-tight">Academic Registry Console</h2>
+                                <p className="text-stone-400 font-bold text-xs uppercase tracking-widest mt-1">Pending Official Approval</p>
+                            </div>
+                            <div className="relative z-10 flex gap-4">
+                                <Button variant="secondary" className="h-10 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 border-stone-100" onClick={fetchInitialData}>
+                                    <RefreshCw size={14} className="mr-2" /> Sync Data
+                                </Button>
+                            </div>
+                        </div>
+
+                        <Card className="border-stone-100 overflow-hidden shadow-xl shadow-stone-100/30 rounded-[2.5rem]">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="bg-stone-900 text-white/50 text-[10px] font-black uppercase tracking-widest">
+                                        <tr>
+                                            <th className="px-8 py-6">Student</th>
+                                            <th className="px-8 py-6">Subject</th>
+                                            <th className="px-8 py-6">Metrics (I/M/P)</th>
+                                            <th className="px-8 py-6">Total</th>
+                                            <th className="px-8 py-6 text-right">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-stone-50 bg-white">
+                                        {pendingMarks.map(m => (
+                                            <tr key={m.id} className="hover:bg-indigo-50/10 transition-colors">
+                                                <td className="px-8 py-6">
+                                                    <p className="font-black text-stone-900 text-sm tracking-tight">{m.students?.name}</p>
+                                                    <p className="text-[10px] text-stone-400 font-bold uppercase">{m.student_uid}</p>
+                                                </td>
+                                                <td className="px-8 py-6">
+                                                    <p className="text-xs font-black text-indigo-600 truncate max-w-[150px]">{m.subjects?.name}</p>
+                                                </td>
+                                                <td className="px-8 py-6">
+                                                    <div className="flex gap-2">
+                                                        <span className="px-2 py-1 bg-stone-50 rounded-lg text-[10px] font-black border border-stone-100">I: {m.internal_marks}</span>
+                                                        <span className="px-2 py-1 bg-indigo-50 text-indigo-600 rounded-lg text-[10px] font-black border border-indigo-100">M: {m.mid_term_marks}</span>
+                                                        <span className="px-2 py-1 bg-emerald-50 text-emerald-600 rounded-lg text-[10px] font-black border border-emerald-100">P: {m.practical_marks}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-6">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-lg font-black text-stone-900">{m.total_marks}</span>
+                                                        <span className="px-2 py-0.5 bg-stone-900 text-white rounded-md text-[8px] font-black uppercase">{m.grade || 'NA'}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-8 py-6 text-right">
+                                                    <Button className="bg-indigo-600 hover:bg-indigo-700 h-10 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-100" onClick={() => handleApproveMark([m.id])}>
+                                                        Publish to Portal
+                                                    </Button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {pendingMarks.length === 0 && (
+                                            <tr>
+                                                <td colSpan={5} className="py-32 text-center">
+                                                    <div className="flex flex-col items-center gap-4">
+                                                        <CheckCircle2 size={64} className="text-stone-100" />
+                                                        <p className="text-stone-300 font-black uppercase tracking-[0.2em] text-sm">Registry is Fully Validated</p>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+                    </div>
+                )}
 
                 {activeTab === 'users' && (
                     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -252,11 +445,11 @@ export default function AdminDashboard() {
                                                 </td>
                                                 <td className="px-8 py-6 text-right">
                                                     <div className="flex justify-end gap-2">
-                                                        <Button variant="secondary" className="h-10 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 border-transparent hover:border-indigo-100">
+                                                        <Button variant="secondary" className="h-10 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 border-transparent hover:border-indigo-100" onClick={() => handleResetPassword(user.uid_eid)}>
                                                             <Key size={14} className="mr-2" /> Reset
                                                         </Button>
-                                                        <Button variant="outline" className="h-10 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 border-stone-100 hover:bg-stone-50">
-                                                            <Settings size={14} className="mr-2" /> Modify
+                                                        <Button variant="outline" className={`h-10 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 border-stone-100 hover:bg-stone-50 ${!user.is_active ? 'text-red-500' : ''}`} onClick={() => toggleUserStatus(user.uid_eid, user.is_active)}>
+                                                            <Settings size={14} className="mr-2" /> {user.is_active ? 'Deactivate' : 'Activate'}
                                                         </Button>
                                                     </div>
                                                 </td>
@@ -295,8 +488,10 @@ export default function AdminDashboard() {
                                                 { name: 'Assistant Faculty', level: 50, label: 'Asst. Faculty' },
                                                 { name: 'Faculty', level: 60, label: 'Professor' },
                                                 { name: 'HOD', level: 70, label: 'HOD' },
-                                                { name: 'Academic Admin', level: 80, label: 'Acad Admin' },
-                                                { name: 'Super Admin', level: 100, label: 'Super Admin' }
+                                                ...(isSuperAdmin ? [
+                                                    { name: 'Academic Admin', level: 80, label: 'Acad Admin' },
+                                                    { name: 'Super Admin', level: 100, label: 'Super Admin' }
+                                                ] : [])
                                             ].map(r => (
                                                 <button
                                                     key={`${r.name}-${r.level}`}
@@ -350,7 +545,7 @@ export default function AdminDashboard() {
                                                     className="w-full h-14 px-6 bg-stone-50 border-0 rounded-2xl font-bold text-stone-800 outline-none focus:ring-4 focus:ring-indigo-50 appearance-none"
                                                     value={regData.department_id}
                                                     onChange={e => {
-                                                        setRegData({ ...regData, department_id: e.target.value });
+                                                        setRegData({ ...regData, department_id: e.target.value, course_id: '' });
                                                     }}
                                                     required
                                                 >
@@ -362,13 +557,14 @@ export default function AdminDashboard() {
                                                 <div className="space-y-2">
                                                     <label className="text-[10px] font-black text-stone-300 uppercase tracking-widest ml-1">Academic Program (Course)</label>
                                                     <select
-                                                        className="w-full h-14 px-6 bg-stone-50 border-0 rounded-2xl font-bold text-stone-800 outline-none focus:ring-4 focus:ring-indigo-50 appearance-none"
+                                                        className={`w-full h-14 px-6 bg-stone-50 border-0 rounded-2xl font-bold text-stone-800 outline-none focus:ring-4 focus:ring-indigo-50 appearance-none ${!regData.department_id ? 'opacity-50 cursor-not-allowed' : ''}`}
                                                         value={regData.course_id}
                                                         onChange={e => setRegData({ ...regData, course_id: e.target.value })}
                                                         required
+                                                        disabled={!regData.department_id}
                                                     >
-                                                        <option value="">Select Course</option>
-                                                        {courses.filter(c => c.department_id === regData.department_id).map(c => (
+                                                        <option value="">{regData.department_id ? 'Select Course' : 'Choose Department First'}</option>
+                                                        {courses.filter(c => c.dept_id === regData.department_id).map(c => (
                                                             <option key={c.id} value={c.id}>{c.name}</option>
                                                         ))}
                                                     </select>
@@ -408,8 +604,9 @@ export default function AdminDashboard() {
                                                     <p className="text-xs font-bold text-indigo-400">Upload CSV/Excel Spreadsheet</p>
                                                 </div>
                                             </div>
-                                            <Button variant="outline" className="h-12 px-6 rounded-xl font-black bg-white border-transparent shadow-sm">
+                                            <Button variant="outline" className="h-12 px-6 rounded-xl font-black bg-white border-transparent shadow-sm relative overflow-hidden">
                                                 Select Archive
+                                                <input type="file" accept=".json" className="absolute inset-0 opacity-0 cursor-pointer" onChange={handleBulkIngest} />
                                             </Button>
                                         </div>
                                     </div>
@@ -419,11 +616,71 @@ export default function AdminDashboard() {
                     </div>
                 )}
 
+                {activeTab === 'structure' && isSuperAdmin && (
+                    <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        {/* Departments Section */}
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-2xl font-black text-stone-900 tracking-tight">Institutional Departments</h2>
+                                <Button variant="primary" className="h-12 rounded-xl font-black px-6 shadow-lg shadow-indigo-100" onClick={() => alert('Add Department logic coming soon')}>
+                                    <Plus size={20} className="mr-2" /> New Department
+                                </Button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {departments.map(dept => (
+                                    <Card key={dept.id} className="border-stone-100 hover:shadow-xl transition-all group overflow-hidden">
+                                        <CardContent className="p-8">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center text-white font-black shadow-lg">
+                                                    {dept.code}
+                                                </div>
+                                                <Button variant="outline" size="sm" className="h-8 w-8 p-0 rounded-lg text-stone-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <Settings size={14} />
+                                                </Button>
+                                            </div>
+                                            <h3 className="text-lg font-black text-stone-800 tracking-tight">{dept.name}</h3>
+                                            <p className="text-xs font-bold text-stone-400 mt-2">ID: {dept.id.slice(0, 8)}...</p>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Courses Section */}
+                        <div className="space-y-6">
+                            <div className="flex justify-between items-center">
+                                <h2 className="text-2xl font-black text-stone-900 tracking-tight">Academic Courses</h2>
+                                <Button variant="primary" className="h-12 rounded-xl font-black px-6 shadow-lg shadow-indigo-100" onClick={() => alert('Add Course logic coming soon')}>
+                                    <Plus size={20} className="mr-2" /> New Course
+                                </Button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {courses.map(course => (
+                                    <Card key={course.id} className="border-stone-100 hover:shadow-xl transition-all group">
+                                        <CardContent className="p-8">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <div className="px-3 py-1 bg-stone-50 text-[10px] font-black text-stone-400 rounded-lg uppercase tracking-widest border border-stone-100">
+                                                    {course.code}
+                                                </div>
+                                                <span className="text-xs font-bold text-indigo-600">{course.duration_years} Years</span>
+                                            </div>
+                                            <h3 className="text-lg font-black text-stone-800 tracking-tight mb-2">{course.name}</h3>
+                                            <p className="text-xs font-medium text-stone-400 italic">
+                                                Dept: {departments.find(d => d.id === course.dept_id)?.name || 'Unknown'}
+                                            </p>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {activeTab === 'subjects' && (
                     <div className="space-y-8 animate-in fade-in duration-500">
                         <div className="flex justify-between items-center">
                             <h2 className="text-2xl font-black text-stone-800 tracking-tight">Curriculum Inventory</h2>
-                            <Button variant="primary" className="h-12 rounded-xl font-black px-6 shadow-lg shadow-indigo-100">
+                            <Button variant="primary" className="h-12 rounded-xl font-black px-6 shadow-lg shadow-indigo-100" onClick={handleAddSubject}>
                                 <Plus size={20} className="mr-2" /> Add Module
                             </Button>
                         </div>
@@ -462,7 +719,7 @@ export default function AdminDashboard() {
                                 <h2 className="text-2xl font-black text-stone-800 tracking-tight">Schedule Orchestrator</h2>
                                 <p className="text-stone-400 font-bold text-xs uppercase tracking-widest mt-1">Institutional Time Management</p>
                             </div>
-                            <Button variant="primary" className="h-12 px-6 rounded-xl font-black shadow-lg shadow-indigo-100">
+                            <Button variant="primary" className="h-12 px-6 rounded-xl font-black shadow-lg shadow-indigo-100" onClick={() => alert('Feature coming soon: Visual Schedule Builder')}>
                                 <Plus size={18} className="mr-2" /> New Slot
                             </Button>
                         </div>
@@ -515,8 +772,8 @@ export default function AdminDashboard() {
                                                                     <span className="px-2 py-1 rounded-lg bg-stone-100 text-[10px] font-black text-stone-600">{slot.room}</span>
                                                                 </td>
                                                                 <td className="px-6 py-4 text-right opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <Button variant="outline" size="sm" className="h-8 w-8 p-0 rounded-lg">
-                                                                        <Settings size={12} />
+                                                                    <Button variant="outline" size="sm" className="h-8 w-8 p-0 rounded-lg text-red-500 hover:bg-red-50" onClick={() => handleDeleteSlot(slot.id)}>
+                                                                        <Trash2 size={12} />
                                                                     </Button>
                                                                 </td>
                                                             </tr>
@@ -615,7 +872,7 @@ export default function AdminDashboard() {
                                     <h3 className="text-2xl font-black text-stone-800 tracking-tight">GPA Logic Engine</h3>
                                     <p className="text-stone-400 font-bold text-sm leading-relaxed">Automated calculation of credit-weighted SGPAs based on validated grade entries.</p>
                                 </div>
-                                <Button variant="primary" className="h-14 rounded-2xl font-black bg-stone-900 text-white w-full shadow-lg">
+                                <Button variant="primary" className="h-14 rounded-2xl font-black bg-stone-900 text-white w-full shadow-lg" onClick={() => { setLoading(true); recalculateGpaAction('all').then(() => alert('Global GPA scores updated.')).finally(() => setLoading(false)) }}>
                                     Recalculate Global GPA
                                 </Button>
                             </Card>
@@ -629,8 +886,19 @@ export default function AdminDashboard() {
                                 <h2 className="text-2xl font-black text-stone-900 tracking-tight">Institutional Audit Vault</h2>
                                 <p className="text-stone-400 font-bold text-xs uppercase tracking-widest mt-1">Immutable Transaction History</p>
                             </div>
-                            <Button variant="secondary" className="h-12 px-6 rounded-xl font-black border-2 border-stone-100">
-                                <Printer size={18} className="mr-2" /> Export Log
+                            <Button variant="secondary" className="h-10 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 border-stone-100" onClick={() => {
+                                const csv = [
+                                    ['Performed By', 'Action', 'Entity', 'Entity ID', 'Timestamp'],
+                                    ...auditLogs.map(l => [l.performed_by, l.action, l.entity_type, l.entity_id, l.created_at])
+                                ].map(r => r.join(',')).join('\n');
+                                const blob = new Blob([csv], { type: 'text/csv' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = `audit_logs_${new Date().toISOString()}.csv`;
+                                a.click();
+                            }}>
+                                <Printer size={16} className="mr-2" /> Export Log
                             </Button>
                         </div>
 
