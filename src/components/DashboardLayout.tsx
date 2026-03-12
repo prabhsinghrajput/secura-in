@@ -24,7 +24,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
     const getDashboardPath = () => {
         if (roleLevel >= 100) return '/dashboard/admin'; // Super Admin
-        if (roleLevel >= 80) return '/dashboard/admin'; // Acad Admin
+        if (roleLevel >= 80) return '/dashboard/academic-admin'; // Acad Admin
         if (roleLevel >= 70) return '/dashboard/hod';
         if (roleLevel >= 60) return '/dashboard/faculty';
         if (roleLevel >= 50) return '/dashboard/assistant-faculty';

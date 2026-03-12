@@ -12,13 +12,19 @@ export default withAuth(
         if (path.startsWith("/dashboard/student") && roleLevel < 10) {
             return NextResponse.redirect(new URL("/auth/login", req.url));
         }
-        if (path.startsWith("/dashboard/faculty") && roleLevel < 50) {
+        if (path.startsWith("/dashboard/assistant-faculty") && roleLevel < 50) {
+            return NextResponse.redirect(new URL("/auth/login", req.url));
+        }
+        if (path.startsWith("/dashboard/faculty") && roleLevel < 60) {
             return NextResponse.redirect(new URL("/auth/login", req.url));
         }
         if (path.startsWith("/dashboard/hod") && roleLevel < 70) {
             return NextResponse.redirect(new URL("/auth/login", req.url));
         }
-        if (path.startsWith("/dashboard/admin") && roleLevel < 80) {
+        if (path.startsWith("/dashboard/academic-admin") && roleLevel < 80) {
+            return NextResponse.redirect(new URL("/auth/login", req.url));
+        }
+        if (path.startsWith("/dashboard/admin") && roleLevel < 100) {
             return NextResponse.redirect(new URL("/auth/login", req.url));
         }
     },

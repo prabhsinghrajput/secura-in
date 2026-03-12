@@ -52,10 +52,11 @@ export default function LoginPage() {
             const role = data?.user?.role;
             const level = data?.user?.role_level;
 
-            if (role === 'admin' || level >= 80) router.push('/dashboard/admin');
-            else if (role === 'hod' || level === 70) router.push('/dashboard/hod');
-            else if (role === 'faculty' || level >= 50) router.push('/dashboard/faculty');
-            else if (role === 'student' || level === 10) router.push('/dashboard/student');
+            if (level >= 100) router.push('/dashboard/admin');
+            else if (level >= 80) router.push('/dashboard/academic-admin');
+            else if (level >= 70 || role === 'hod') router.push('/dashboard/hod');
+            else if (level >= 50 || role === 'faculty') router.push('/dashboard/faculty');
+            else if (level === 10 || role === 'student') router.push('/dashboard/student');
             else router.push('/');
         }
     };
