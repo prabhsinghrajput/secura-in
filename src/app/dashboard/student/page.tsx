@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
     getStudentDashboardAction,
     getStudentProfileAction,
@@ -34,10 +35,26 @@ import {
 type TabType = 'overview' | 'profile' | 'attendance' | 'marks' | 'results' | 'assignments' | 'timetable' | 'notifications';
 
 export default function StudentDashboard() {
+    return (
+        <Suspense fallback={
+            <DashboardLayout>
+                <div className="flex h-[50vh] items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                </div>
+            </DashboardLayout>
+        }>
+            <StudentDashboardContent />
+        </Suspense>
+    );
+}
+
+function StudentDashboardContent() {
     const { data: session } = useSession();
     const user = session?.user as any;
+    const router = useRouter();
+    const searchParams = useSearchParams();
 
-    const [activeTab, setActiveTab] = useState<TabType>('overview');
+    const activeTab = (searchParams.get('tab') as TabType) || 'overview';
     const [loading, setLoading] = useState(true);
     const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
@@ -282,26 +299,6 @@ export default function StudentDashboard() {
         Overdue: 'bg-red-50 text-red-600',
     };
 
-    const TabButton = ({ id, label, icon: Icon, badge }: { id: TabType; label: string; icon: any; badge?: number }) => (
-        <button
-            onClick={() => {
-                setActiveTab(id);
-                if (id === 'marks') loadMarks();
-                if (id === 'results') loadResults();
-                if (id === 'assignments') loadAssignments();
-            }}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-black rounded-2xl transition-all relative ${activeTab === id
-                ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100'
-                : 'text-stone-400 hover:text-stone-600 hover:bg-stone-50'
-            }`}
-        >
-            <Icon size={16} />
-            {label}
-            {badge && badge > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center">{badge}</span>
-            )}
-        </button>
-    );
 
     return (
         <DashboardLayout>
@@ -321,18 +318,8 @@ export default function StudentDashboard() {
                     <div className="relative z-10 space-y-2">
                         <h1 className="text-5xl font-black text-stone-900 tracking-tight leading-none">Student Portal</h1>
                         <p className="text-indigo-600 font-extrabold uppercase tracking-[0.2em] text-xs">
-                            {profile?.name || 'Student'} • {profile?.courses?.code || 'Academic Access'} • Level 10
+                            {profile?.name || 'Student'} • {profile?.courses?.code || 'Academic Access'} • {user?.uid_eid || 'STU'}
                         </p>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 p-1.5 bg-stone-50 rounded-[2.5rem] relative z-10">
-                        <TabButton id="overview" label="Overview" icon={Activity} />
-                        <TabButton id="profile" label="Profile" icon={User} />
-                        <TabButton id="attendance" label="Attendance" icon={CheckCircle2} />
-                        <TabButton id="marks" label="Marks" icon={BarChart2} />
-                        <TabButton id="results" label="Results" icon={Award} />
-                        <TabButton id="assignments" label="Assignments" icon={ClipboardList} />
-                        <TabButton id="timetable" label="Timetable" icon={Calendar} />
-                        <TabButton id="notifications" label="Alerts" icon={BellRing} badge={unreadCount} />
                     </div>
                 </div>
 
@@ -400,7 +387,7 @@ export default function StudentDashboard() {
                                         { label: 'Notifications', tab: 'notifications' as TabType, icon: BellRing, color: 'bg-rose-600' },
                                     ].map((btn, i) => (
                                         <button key={i} onClick={() => {
-                                            setActiveTab(btn.tab);
+                                            router.push(`/dashboard/student?tab=${btn.tab}`);
                                             if (btn.tab === 'marks') loadMarks();
                                             if (btn.tab === 'results') loadResults();
                                             if (btn.tab === 'assignments') loadAssignments();

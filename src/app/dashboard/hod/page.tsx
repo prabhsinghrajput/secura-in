@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import {
     getStudentsAction,
     getEmployeesAction,
@@ -30,15 +30,32 @@ import {
     XCircle, Download, Eye, Activity, Award
 } from 'lucide-react';
 import { useSession } from 'next-auth/react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 type HodTab = 'overview' | 'students' | 'faculty' | 'marks' | 'attendance' | 'analytics';
 
 export default function HodDashboard() {
+    return (
+        <Suspense fallback={
+            <DashboardLayout>
+                <div className="flex h-[50vh] items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                </div>
+            </DashboardLayout>
+        }>
+            <HodDashboardContent />
+        </Suspense>
+    );
+}
+
+function HodDashboardContent() {
     const { data: session } = useSession();
     const user = session?.user as any;
+    const router = useRouter();
+    const searchParams = useSearchParams();
 
     const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState<HodTab>('overview');
+    const activeTab = (searchParams.get('tab') as HodTab) || 'overview';
 
     // Dashboard
     const [stats, setStats] = useState<any>(null);
@@ -238,15 +255,6 @@ export default function HodDashboard() {
         </select>
     );
 
-    const TabBtn = ({ id, label, icon: Icon, count }: { id: HodTab; label: string; icon: any; count?: number }) => (
-        <button onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-[11px] font-black rounded-xl transition-all relative ${activeTab === id ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-100' : 'text-stone-400 hover:text-stone-600 hover:bg-stone-50'}`}>
-            <Icon size={15} /> {label}
-            {count !== undefined && count > 0 && (
-                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[8px] font-black ${activeTab === id ? 'bg-white/20 text-white' : 'bg-indigo-100 text-indigo-600'}`}>{count}</span>
-            )}
-        </button>
-    );
 
     const SectionHeader = ({ title, sub, children }: { title: string; sub?: string; children?: React.ReactNode }) => (
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-8 rounded-[2.5rem] border border-stone-100 shadow-sm">
@@ -268,15 +276,7 @@ export default function HodDashboard() {
                     <div className="absolute top-0 right-0 p-8 text-indigo-500/5 pointer-events-none"><Layers size={260} /></div>
                     <div className="relative z-10 space-y-1">
                         <h1 className="text-4xl font-black text-stone-900 tracking-tight">Department Command</h1>
-                        <p className="text-indigo-600 font-extrabold uppercase tracking-[0.2em] text-[10px]">HOD Console&nbsp;•&nbsp;Level 70&nbsp;•&nbsp;Department Scope Only</p>
-                    </div>
-                    <div className="flex flex-wrap gap-1 p-1.5 bg-stone-50 rounded-2xl relative z-10">
-                        <TabBtn id="overview" label="Overview" icon={BarChart3} />
-                        <TabBtn id="students" label="Students" icon={GraduationCap} />
-                        <TabBtn id="faculty" label="Faculty" icon={Briefcase} />
-                        <TabBtn id="marks" label="Marks" icon={ClipboardCheck} count={stats?.pendingMarks} />
-                        <TabBtn id="attendance" label="Attendance" icon={Calendar} />
-                        <TabBtn id="analytics" label="Analytics" icon={TrendingUp} />
+                        <p className="text-indigo-600 font-extrabold uppercase tracking-[0.2em] text-[10px]">{user?.name || 'Head of Department'}&nbsp;•&nbsp;{user?.uid_eid || 'HOD Console'}</p>
                     </div>
                 </div>
 
@@ -315,10 +315,10 @@ export default function HodDashboard() {
                                 <h3 className="text-xl font-black tracking-tight mb-8 relative z-10">Quick Actions</h3>
                                 <div className="space-y-3 relative z-10">
                                     {[
-                                        { label: 'Review Pending Marks', onClick: () => setActiveTab('marks') },
-                                        { label: 'View Attendance Shortages', onClick: () => setActiveTab('attendance') },
-                                        { label: 'Assign Faculty Subjects', onClick: () => { setActiveTab('faculty'); setTimeout(() => setShowAllocForm(true), 100); } },
-                                        { label: 'Department Analytics', onClick: () => setActiveTab('analytics') },
+                                        { label: 'Review Pending Marks', onClick: () => router.push('/dashboard/hod?tab=marks') },
+                                        { label: 'View Attendance Shortages', onClick: () => router.push('/dashboard/hod?tab=attendance') },
+                                        { label: 'Assign Faculty Subjects', onClick: () => { router.push('/dashboard/hod?tab=faculty'); setTimeout(() => setShowAllocForm(true), 100); } },
+                                        { label: 'Department Analytics', onClick: () => router.push('/dashboard/hod?tab=analytics') },
                                     ].map((a, i) => (
                                         <button key={i} onClick={a.onClick} className="w-full flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all group">
                                             <span className="text-sm font-bold">{a.label}</span>

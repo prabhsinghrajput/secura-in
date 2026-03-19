@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardHeader, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -36,11 +37,27 @@ import type { Student, Employee, Subject, Section, FacultyWorkload, PassFailStat
 type AcadTab = 'dashboard' | 'students' | 'faculty' | 'marks' | 'results' | 'reports';
 
 export default function AcademicAdminDashboard() {
+    return (
+        <Suspense fallback={
+            <DashboardLayout>
+                <div className="flex h-[50vh] items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+                </div>
+            </DashboardLayout>
+        }>
+            <AcademicAdminDashboardContent />
+        </Suspense>
+    );
+}
+
+function AcademicAdminDashboardContent() {
     const { data: session } = useSession();
     const user = session?.user as any;
+    const router = useRouter();
+    const searchParams = useSearchParams();
 
     const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState<AcadTab>('dashboard');
+    const activeTab = (searchParams.get('tab') as AcadTab) || 'dashboard';
 
     // ── Dashboard ──
     const [stats, setStats] = useState<any>(null);
@@ -414,15 +431,7 @@ export default function AcademicAdminDashboard() {
         </select>
     );
 
-    const TabBtn = ({ id, label, icon: Icon, count }: { id: AcadTab; label: string; icon: any; count?: number }) => (
-        <button onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-[11px] font-black rounded-xl transition-all relative ${activeTab === id ? 'bg-orange-500 text-white shadow-lg shadow-orange-100' : 'text-stone-400 hover:text-stone-600 hover:bg-stone-50'}`}>
-            <Icon size={15} /> {label}
-            {count !== undefined && count > 0 && (
-                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[8px] font-black ${activeTab === id ? 'bg-white/20 text-white' : 'bg-orange-100 text-orange-600'}`}>{count}</span>
-            )}
-        </button>
-    );
+
 
     const StatusBadge = ({ status }: { status: string }) => {
         const colors: Record<string, string> = {
@@ -445,15 +454,7 @@ export default function AcademicAdminDashboard() {
                     <div className="absolute top-0 right-0 p-8 text-orange-500/5 pointer-events-none"><ClipboardCheck size={260} /></div>
                     <div className="relative z-10 space-y-1">
                         <h1 className="text-4xl font-black text-stone-900 tracking-tight">Academic Operations</h1>
-                        <p className="text-orange-500 font-extrabold uppercase tracking-[0.2em] text-[10px]">Academic Admin Console&nbsp;•&nbsp;Level 80 Authority</p>
-                    </div>
-                    <div className="flex flex-wrap gap-1 p-1.5 bg-stone-50 rounded-2xl relative z-10">
-                        <TabBtn id="dashboard" label="Overview" icon={BarChart3} />
-                        <TabBtn id="students" label="Students" icon={GraduationCap} />
-                        <TabBtn id="faculty" label="Faculty" icon={Briefcase} />
-                        <TabBtn id="marks" label="Marks" icon={ClipboardCheck} count={stats?.pendingApprovals} />
-                        <TabBtn id="results" label="Results" icon={Award} />
-                        <TabBtn id="reports" label="Reports" icon={FileText} />
+                        <p className="text-orange-500 font-extrabold uppercase tracking-[0.2em] text-[10px]">{user?.name || 'Academic Admin'}&nbsp;•&nbsp;{user?.uid_eid || 'Admin Console'}</p>
                     </div>
                 </div>
 
@@ -492,10 +493,10 @@ export default function AcademicAdminDashboard() {
                                 <h3 className="text-xl font-black tracking-tight mb-8 relative z-10">Quick Actions</h3>
                                 <div className="space-y-3 relative z-10">
                                     {[
-                                        { label: 'Add New Student', onClick: () => { setActiveTab('students'); setTimeout(() => setShowStudentForm(true), 100); } },
-                                        { label: 'Review Pending Marks', onClick: () => setActiveTab('marks') },
-                                        { label: 'Generate Results', onClick: () => setActiveTab('results') },
-                                        { label: 'Assign Faculty', onClick: () => { setActiveTab('faculty'); setTimeout(() => setShowAllocForm(true), 100); } },
+                                        { label: 'Add New Student', onClick: () => { router.push('/dashboard/academic-admin?tab=students'); setTimeout(() => setShowStudentForm(true), 100); } },
+                                        { label: 'Review Pending Marks', onClick: () => router.push('/dashboard/academic-admin?tab=marks') },
+                                        { label: 'Generate Results', onClick: () => router.push('/dashboard/academic-admin?tab=results') },
+                                        { label: 'Assign Faculty', onClick: () => { router.push('/dashboard/academic-admin?tab=faculty'); setTimeout(() => setShowAllocForm(true), 100); } },
                                     ].map((a, i) => (
                                         <button key={i} onClick={a.onClick} className="w-full flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all group">
                                             <span className="text-sm font-bold">{a.label}</span>

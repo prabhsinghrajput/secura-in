@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { DashboardLayout } from '@/components/DashboardLayout';
 import { Card, CardHeader, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -42,12 +43,14 @@ type AcademicSub = 'courses' | 'semesters' | 'subjects';
    COMPONENT
    ────────────────────────────────────────── */
 
-export default function SuperAdminDashboard() {
+function SuperAdminDashboardContent() {
     const { data: session } = useSession();
     const user = session?.user as any;
+    const searchParams = useSearchParams();
+    const router = useRouter();
 
     const [loading, setLoading] = useState(false);
-    const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+    const activeTab = (searchParams.get('tab') as AdminTab) || 'dashboard';
     const [academicSub, setAcademicSub] = useState<AcademicSub>('courses');
 
     // ── Dashboard ──
@@ -434,13 +437,6 @@ export default function SuperAdminDashboard() {
         </select>
     );
 
-    const TabBtn = ({ id, label, icon: Icon }: { id: AdminTab; label: string; icon: any }) => (
-        <button onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-[11px] font-black rounded-xl transition-all ${activeTab === id ? 'bg-red-600 text-white shadow-lg shadow-red-100' : 'text-stone-400 hover:text-stone-600 hover:bg-stone-50'}`}>
-            <Icon size={15} /> {label}
-        </button>
-    );
-
     /* ═══════════════════ RENDER ═══════════════════ */
 
     return (
@@ -451,17 +447,7 @@ export default function SuperAdminDashboard() {
                     <div className="absolute top-0 right-0 p-8 text-red-500/5 pointer-events-none"><Shield size={260} /></div>
                     <div className="relative z-10 space-y-1">
                         <h1 className="text-4xl font-black text-stone-900 tracking-tight">Institutional Governance</h1>
-                        <p className="text-red-600 font-extrabold uppercase tracking-[0.2em] text-[10px]">Super Admin Control Center&nbsp;•&nbsp;Level 100 Authority</p>
-                    </div>
-                    <div className="flex flex-wrap gap-1 p-1.5 bg-stone-50 rounded-2xl relative z-10">
-                        <TabBtn id="dashboard" label="Dashboard" icon={LayoutDashboard} />
-                        <TabBtn id="roles" label="Roles" icon={Shield} />
-                        <TabBtn id="departments" label="Depts" icon={Building2} />
-                        <TabBtn id="academic" label="Academic" icon={BookOpen} />
-                        <TabBtn id="users" label="Users" icon={Users} />
-                        <TabBtn id="grading" label="Grading" icon={Award} />
-                        <TabBtn id="config" label="Config" icon={Settings} />
-                        <TabBtn id="audit" label="Audit" icon={Activity} />
+                        <p className="text-red-600 font-extrabold uppercase tracking-[0.2em] text-[10px]">{user?.name || 'Administrator'}&nbsp;•&nbsp;{user?.uid_eid || 'Super Admin'}</p>
                     </div>
                 </div>
 
@@ -502,9 +488,9 @@ export default function SuperAdminDashboard() {
                                 <h3 className="text-xl font-black tracking-tight mb-8 relative z-10">Quick Actions</h3>
                                 <div className="space-y-3 relative z-10">
                                     {[
-                                        { label: 'Provision New User', onClick: () => { setActiveTab('users'); setTimeout(() => setShowUserForm(true), 100); } },
-                                        { label: 'Add Department', onClick: () => { setActiveTab('departments'); setTimeout(() => setShowDeptForm(true), 100); } },
-                                        { label: 'Create Course', onClick: () => { setActiveTab('academic'); setTimeout(() => setShowCourseForm(true), 100); } },
+                                        { label: 'Provision New User', onClick: () => { router.push('/dashboard/admin?tab=users'); setTimeout(() => setShowUserForm(true), 100); } },
+                                        { label: 'Add Department', onClick: () => { router.push('/dashboard/admin?tab=departments'); setTimeout(() => setShowDeptForm(true), 100); } },
+                                        { label: 'Create Course', onClick: () => { router.push('/dashboard/admin?tab=academic'); setTimeout(() => setShowCourseForm(true), 100); } },
                                         { label: 'Recalculate Global GPA', onClick: async () => { setLoading(true); await recalculateGpaAction('all'); alert('GPA recalculated.'); setLoading(false); } },
                                     ].map((a, i) => (
                                         <button key={i} onClick={a.onClick} className="w-full flex items-center justify-between p-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all group">
@@ -519,7 +505,7 @@ export default function SuperAdminDashboard() {
                             <Card className="xl:col-span-2 border-stone-100 rounded-[2.5rem] overflow-hidden shadow-sm">
                                 <div className="p-6 border-b border-stone-50 flex items-center justify-between">
                                     <h3 className="font-black text-stone-800 tracking-tight">Recent System Activity</h3>
-                                    <Button variant="outline" size="sm" className="rounded-xl text-[10px] font-black uppercase tracking-widest border-stone-200" onClick={() => setActiveTab('audit')}>View All</Button>
+                                    <Button variant="outline" size="sm" className="rounded-xl text-[10px] font-black uppercase tracking-widest border-stone-200" onClick={() => router.push('/dashboard/admin?tab=audit')}>View All</Button>
                                 </div>
                                 <div className="divide-y divide-stone-50">
                                     {recentAudit.map((log, i) => (
@@ -1223,5 +1209,17 @@ export default function SuperAdminDashboard() {
                 )}
             </div>
         </DashboardLayout>
+    );
+}
+
+export default function SuperAdminDashboard() {
+    return (
+        <Suspense fallback={
+            <DashboardLayout>
+                <div className="p-10 font-black text-stone-300 uppercase tracking-widest text-center">Loading Governance Center...</div>
+            </DashboardLayout>
+        }>
+            <SuperAdminDashboardContent />
+        </Suspense>
     );
 }

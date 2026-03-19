@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
     getAsstFacultyDashboardAction,
     getAsstFacultyAssignmentsAction,
@@ -35,10 +36,26 @@ import {
 type AsstTab = 'overview' | 'subjects' | 'attendance' | 'assignments' | 'lab-marks' | 'issues' | 'analytics';
 
 export default function AssistantFacultyDashboard() {
+    return (
+        <Suspense fallback={
+            <DashboardLayout>
+                <div className="flex h-[50vh] items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
+                </div>
+            </DashboardLayout>
+        }>
+            <AssistantFacultyDashboardContent />
+        </Suspense>
+    );
+}
+
+function AssistantFacultyDashboardContent() {
     const { data: session } = useSession();
     const user = session?.user as any;
+    const router = useRouter();
+    const searchParams = useSearchParams();
 
-    const [activeTab, setActiveTab] = useState<AsstTab>('overview');
+    const activeTab = (searchParams.get('tab') as AsstTab) || 'overview';
     const [loading, setLoading] = useState(true);
     const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
@@ -347,24 +364,6 @@ export default function AssistantFacultyDashboard() {
         closed: 'bg-stone-100 text-stone-500',
     };
 
-    const TabButton = ({ id, label, icon: Icon }: { id: AsstTab; label: string; icon: any }) => (
-        <button
-            onClick={() => {
-                setActiveTab(id);
-                if (id === 'overview') loadDashboard();
-                if (id === 'issues') loadIssues(issueFilter);
-                if (id === 'analytics') loadAnalytics();
-                if (id === 'assignments') { if (selectedAssignment) loadAssignments(selectedAssignment.subjects.id); else loadAssignments(); }
-            }}
-            className={`flex items-center gap-2 px-5 py-3 text-sm font-black rounded-2xl transition-all ${activeTab === id
-                ? 'bg-teal-600 text-white shadow-xl shadow-teal-100'
-                : 'text-stone-400 hover:text-stone-600 hover:bg-stone-50'
-            }`}
-        >
-            <Icon size={16} />
-            {label}
-        </button>
-    );
 
     return (
         <DashboardLayout>
@@ -384,17 +383,8 @@ export default function AssistantFacultyDashboard() {
                     <div className="relative z-10 space-y-2">
                         <h1 className="text-5xl font-black text-stone-900 tracking-tight leading-none">Academic Support</h1>
                         <p className="text-teal-600 font-extrabold uppercase tracking-[0.2em] text-xs">
-                            Assistant Faculty • Level 50 Access
+                            {user?.name || 'Assistant Faculty'} • {user?.uid_eid || 'Academic Support'}
                         </p>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5 p-1.5 bg-stone-50 rounded-[2.5rem] relative z-10">
-                        <TabButton id="overview" label="Overview" icon={Activity} />
-                        <TabButton id="subjects" label="Subjects" icon={BookOpen} />
-                        <TabButton id="attendance" label="Attendance" icon={CheckCircle2} />
-                        <TabButton id="assignments" label="Assignments" icon={FileText} />
-                        <TabButton id="lab-marks" label="Lab Marks" icon={Beaker} />
-                        <TabButton id="issues" label="Issues" icon={MessageSquare} />
-                        <TabButton id="analytics" label="Reports" icon={BarChart2} />
                     </div>
                 </div>
 
@@ -441,7 +431,7 @@ export default function AssistantFacultyDashboard() {
                                         { label: 'Record Lab Marks', tab: 'lab-marks' as AsstTab, icon: Beaker, color: 'bg-blue-600' },
                                         { label: 'Log Issue', tab: 'issues' as AsstTab, icon: MessageSquare, color: 'bg-amber-600' },
                                     ].map((btn, i) => (
-                                        <button key={i} onClick={() => setActiveTab(btn.tab)}
+                                        <button key={i} onClick={() => router.push(`/dashboard/assistant-faculty?tab=${btn.tab}`)}
                                             className={`${btn.color} text-white p-5 rounded-3xl flex items-center gap-3 font-black text-sm hover:opacity-90 transition-all shadow-lg`}>
                                             <btn.icon size={18} /> {btn.label}
                                         </button>
@@ -454,7 +444,7 @@ export default function AssistantFacultyDashboard() {
                                 <h3 className="text-2xl font-black text-stone-800 tracking-tight">My Subjects</h3>
                                 <div className="space-y-3">
                                     {activeAssignments.slice(0, 4).map((a: any, i: number) => (
-                                        <div key={i} onClick={() => { selectSubject(a); setActiveTab('attendance'); }}
+                                        <div key={i} onClick={() => { selectSubject(a); router.push('/dashboard/assistant-faculty?tab=attendance'); }}
                                             className="flex items-center justify-between p-5 bg-stone-50 rounded-2xl border border-stone-100 group hover:bg-white hover:shadow-lg transition-all cursor-pointer">
                                             <div className="flex items-center gap-4">
                                                 <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-teal-600 font-black shadow-sm group-hover:bg-teal-600 group-hover:text-white transition-all text-[10px]">
@@ -522,11 +512,11 @@ export default function AssistantFacultyDashboard() {
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
-                                        <button onClick={() => { selectSubject(a); setActiveTab('attendance'); }}
+                                        <button onClick={() => { selectSubject(a); router.push('/dashboard/assistant-faculty?tab=attendance'); }}
                                             className="flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-teal-50 text-teal-600 hover:bg-teal-100 transition-all">Attend.</button>
-                                        <button onClick={() => { setSelectedAssignment(a); loadAssignments(a.subjects?.id); setActiveTab('assignments'); }}
+                                        <button onClick={() => { setSelectedAssignment(a); loadAssignments(a.subjects?.id); router.push('/dashboard/assistant-faculty?tab=assignments'); }}
                                             className="flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-violet-50 text-violet-600 hover:bg-violet-100 transition-all">Assign.</button>
-                                        <button onClick={() => { loadLabMarks(a); setActiveTab('lab-marks'); }}
+                                        <button onClick={() => { loadLabMarks(a); router.push('/dashboard/assistant-faculty?tab=lab-marks'); }}
                                             className="flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all">Lab</button>
                                     </div>
                                 </Card>

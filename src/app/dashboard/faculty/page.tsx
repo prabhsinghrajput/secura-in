@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
     getFacultyDashboardStatsAction,
     getFacultyAssignmentsDetailedAction,
@@ -31,10 +32,26 @@ import {
 type FacultyTab = 'overview' | 'subjects' | 'attendance' | 'marks' | 'analytics' | 'schedule';
 
 export default function FacultyDashboard() {
+    return (
+        <Suspense fallback={
+            <DashboardLayout>
+                <div className="flex h-[50vh] items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                </div>
+            </DashboardLayout>
+        }>
+            <FacultyDashboardContent />
+        </Suspense>
+    );
+}
+
+function FacultyDashboardContent() {
     const { data: session } = useSession();
     const user = session?.user as any;
+    const router = useRouter();
+    const searchParams = useSearchParams();
 
-    const [activeTab, setActiveTab] = useState<FacultyTab>('overview');
+    const activeTab = (searchParams.get('tab') as FacultyTab) || 'overview';
     const [loading, setLoading] = useState(true);
     const [msg, setMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
@@ -277,18 +294,6 @@ export default function FacultyDashboard() {
         return map[status] || 'bg-stone-100 text-stone-400';
     };
 
-    const TabButton = ({ id, label, icon: Icon }: { id: FacultyTab; label: string; icon: any }) => (
-        <button
-            onClick={() => { setActiveTab(id); if (id === 'overview') loadDashboard(); }}
-            className={`flex items-center gap-3 px-6 py-3 text-sm font-black rounded-2xl transition-all ${activeTab === id
-                ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-100'
-                : 'text-stone-400 hover:text-stone-600 hover:bg-stone-50'
-            }`}
-        >
-            <Icon size={18} />
-            {label}
-        </button>
-    );
 
     return (
         <DashboardLayout>
@@ -308,16 +313,8 @@ export default function FacultyDashboard() {
                     <div className="relative z-10 space-y-2">
                         <h1 className="text-5xl font-black text-stone-900 tracking-tight leading-none">Faculty Hub</h1>
                         <p className="text-emerald-600 font-extrabold uppercase tracking-[0.2em] text-xs">
-                            {user?.role_level === 50 ? 'Academic Support • Level 50' : 'Subject Authority • Level 60'}
+                            {user?.name || 'Faculty Member'} • {user?.uid_eid || 'Subject Authority'}
                         </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 p-1.5 bg-stone-50 rounded-[2.5rem] relative z-10">
-                        <TabButton id="overview" label="Overview" icon={Activity} />
-                        <TabButton id="subjects" label="Subjects" icon={BookOpen} />
-                        <TabButton id="attendance" label="Attendance" icon={CheckCircle2} />
-                        <TabButton id="marks" label="Marks" icon={ClipboardList} />
-                        <TabButton id="analytics" label="Analytics" icon={BarChart2} />
-                        <TabButton id="schedule" label="Schedule" icon={Calendar} />
                     </div>
                 </div>
 
@@ -386,7 +383,7 @@ export default function FacultyDashboard() {
                                     ].map((btn, i) => (
                                         <button
                                             key={i}
-                                            onClick={() => setActiveTab(btn.tab)}
+                                            onClick={() => router.push(`/dashboard/faculty?tab=${btn.tab}`)}
                                             className={`${btn.color} text-white p-6 rounded-3xl flex items-center gap-4 font-black text-sm hover:opacity-90 transition-all shadow-lg`}
                                         >
                                             <btn.icon size={20} />
@@ -403,7 +400,7 @@ export default function FacultyDashboard() {
                                 <h3 className="text-2xl font-black text-stone-800 tracking-tight">Active Classes</h3>
                                 <div className="space-y-4">
                                     {activeAssignments.slice(0, 5).map((a: any, i: number) => (
-                                        <div key={i} onClick={() => { selectAssignment(a); setActiveTab('attendance'); }}
+                                        <div key={i} onClick={() => { selectAssignment(a); router.push('/dashboard/faculty?tab=attendance'); }}
                                             className="flex items-center justify-between p-6 bg-stone-50 rounded-3xl border border-stone-100 group hover:bg-white hover:shadow-xl transition-all cursor-pointer">
                                             <div className="flex items-center gap-6">
                                                 <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-emerald-600 font-black shadow-sm group-hover:bg-emerald-600 group-hover:text-white transition-all text-xs">
@@ -486,15 +483,15 @@ export default function FacultyDashboard() {
                                         </div>
                                     </div>
                                     <div className="flex gap-2 pt-2">
-                                        <button onClick={() => { selectAssignment(a); setActiveTab('attendance'); }}
+                                        <button onClick={() => { selectAssignment(a); router.push('/dashboard/faculty?tab=attendance'); }}
                                             className="flex-1 text-center py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-emerald-50 text-emerald-600 hover:bg-emerald-100 transition-all">
                                             Attendance
                                         </button>
-                                        <button onClick={() => { loadMarksForSubject(a); setActiveTab('marks'); }}
+                                        <button onClick={() => { loadMarksForSubject(a); router.push('/dashboard/faculty?tab=marks'); }}
                                             className="flex-1 text-center py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-all">
                                             Marks
                                         </button>
-                                        <button onClick={() => { loadPerformanceStats(a); setActiveTab('analytics'); }}
+                                        <button onClick={() => { loadPerformanceStats(a); router.push('/dashboard/faculty?tab=analytics'); }}
                                             className="flex-1 text-center py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest bg-violet-50 text-violet-600 hover:bg-violet-100 transition-all">
                                             Stats
                                         </button>
